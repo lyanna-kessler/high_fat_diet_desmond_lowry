@@ -1,0 +1,11 @@
+start time: 2024-04-02 14:53:18.765671
+SCNIC analysis type: module
+input correls: within_output/correls.txt
+output directory: /Users/christopher_lowry/Documents/GitHub/high_fat_microbiome/modules_output
+number of modules created: 54
+input uncollapsed table: hf_weights_table/feature-table.biom
+number of observations in output table: 422
+number of nodes: 188
+number of edges: 1225
+finish time: 2024-04-02 14:53:28.377866
+elapsed time: 0:00:09.612195

@@ -1,0 +1,3488 @@
+---
+title: "High_fat_analysis"
+author: "Lyanna Kessler"
+output: html_document
+date: "2023-09-22"
+---
+
+# Packages
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+some_packages <- c("tidyverse",
+                   "data.table",
+                   "ggplot2",
+                   "phyloseq",
+                   "patchwork",
+                   "microshades",
+                   "cowplot",
+                   "magrittr",
+                   "qiime2R",
+                   "vegan",
+                   "kableExtra",
+                   "microbiomeMarker",
+                   "svglite",
+                   "BiocManager",
+                   "ANCOMBC",
+                   "GMDecomp",
+                   "ape",
+                   "usedist",
+                   "lme4",
+                   "ellipse", 
+                   "ggrepel",
+                   "EnhancedVolcano",
+                   "biomformat",
+                   "ggdist",
+                   "pairwiseAdonis",
+                   "ecole",
+                   "seqinr",
+                   "plotrix",
+                   "ggthemes",
+                   "glmnet",
+                   "ggtree",
+                   "philr",
+                   "ggpubr")
+
+lapply(some_packages, library, character.only=TRUE)
+```
+
+
+## installs from github/biocmanager
+```{r}
+#remotes::install_github("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis", force = T)
+
+#remotes::install_github("phytomosaic/ecole")
+
+#BiocManager::install("philr")
+#BiocManager::install("ggtree")
+
+# Because of an "SSL error," used different repo/mirror
+#install.packages('phangorn', repos='http://cran.us.r-project.org')
+```
+
+
+
+## Function: give_nickname()
+```{r}
+
+give_nickname <- function(names,
+                          one_name = TRUE,
+                          phylum = FALSE,
+                          family = FALSE,
+                          genus = FALSE) {
+  # "names" must be a chr list of long names from the SILVA database
+  # This function takes long taxa names from SILVA and creates a nickname for them
+  # Example long name:
+  # d__Bacteria; p__Bacteroidota; c__Bacteroidia; o__Bacteroidales; f__Bacteroidaceae; g__Bacteroides; s__Bacteroides_vulgatus
+  # Example (one_name) nickname:
+  # Bacteroides_vulgates
+  # Example two-name nickname:
+  # Bacteroides, Bacteroides_vulgatis
+  
+  taxa_clean <- names
+  long <- length(names)
+  
+  for (i in 1:long){
+    s <- str_extract(names[i], "s__\\w+")
+    s <- ifelse(is.na(s) == FALSE & str_detect(s, "uncultured|unidentified|metagenome|human_gut") == FALSE,
+                sub('...','',s),
+                s <- NA)
+    
+    g <- str_extract(names[i], "g__\\w+")
+    g <- ifelse(is.na(g) == FALSE & str_detect(g, "uncultured|unidentified|metagenome|human_gut") == FALSE,
+                sub('...','',g),
+                g <- NA)
+    
+    f <- str_extract(names[i], "f__\\w+")
+    f <- ifelse(is.na(f) == FALSE & str_detect(f, "uncultured|unidentified|metagenome|human_gut") == FALSE,
+                sub('...','',f),
+                f <- NA)
+  
+    o <- str_extract(names[i], "o__\\w+")
+    o <- ifelse(is.na(o) == FALSE & str_detect(o, "uncultured|unidentified|metagenome|human_gut") == FALSE,
+                sub('...','',o),
+                o <- NA)
+    
+    c <- str_extract(names[i], "c__\\w+")
+    c <- ifelse(is.na(c) == FALSE & str_detect(c, "uncultured|unidentified|metagenome|human_gut") == FALSE,
+                sub('...','',c),
+                c <- NA)
+    
+    p <- str_extract(names[i], "p__\\w+")
+    p <- ifelse(is.na(p) == FALSE & str_detect(p, "uncultured|unidentified|metagenome|human_gut") == FALSE,
+                sub('...','',p),
+                p <- NA)
+  
+    ifelse(is.na(s) == FALSE,
+           name1 <- s,
+      ifelse(is.na(g) == FALSE,
+           name1 <- paste(g, "_genus", sep = ""),
+           ifelse(is.na(f) == FALSE,
+                  name1 <- paste(f, "_family", sep = ""),
+                  ifelse(is.na(o) == FALSE,
+                         name1 <- paste(o, "_order", sep = ""),
+                         ifelse(is.na(c) == FALSE,
+                                name1 <- paste(c, "_class", sep = ""),
+                                ifelse(is.na(p) == FALSE,
+                                       name1 <- paste(p, "_phylum", sep = ""),
+                                       name1 <- "Unknown"))))))
+
+    
+        
+    ifelse(is.na(g) == FALSE & name1 != paste(g, "_genus", sep = ""),
+           name2 <- g,
+      ifelse(is.na(f) == FALSE & name1 != paste(f, "_family", sep = ""),
+           name2 <- paste(f, "_family", sep = ""),
+           ifelse(is.na(o) == FALSE & name1 != paste(o, "_order", sep = ""),
+                  name2 <- paste(o, "_order", sep = ""),
+                  ifelse(is.na(c) == FALSE & name1 != paste(c, "_class", sep = ""),
+                         name2 <- paste(c, "_class", sep = ""),
+                         ifelse(is.na(p)==FALSE & name1 != paste(p, "_phylum", sep = ""),
+                                name2 <- paste(p, "_phylum", sep = ""),
+                                name2 <- NA)))))
+    
+    ifelse(one_name == TRUE,
+           taxa_clean[i] <- name1,
+           taxa_clean[i] <- ifelse(is.na(name2)==FALSE,
+                                   paste(name2, name1, sep = ", "),
+                                   name1))
+    if(phylum == TRUE){
+           taxa_clean[i] <- p
+    }
+    if(family == TRUE){
+           taxa_clean[i] <- f
+    }
+    if(genus == TRUE){
+           taxa_clean[i] <- g
+    }
+  }
+  return(taxa_clean)
+  
+}
+
+```
+
+## Luke's Hex Codes
+M.v/CD = FCB5AF
+M.v/WD = A73325
+BBS/CD = ADD4ED
+BBS/WD = 016796
+
+# Export non-rarefied table
+```{r}
+table <- read_qza("data/hf_table.qza")$data
+
+# get names
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data
+asvs <- rownames(table)
+taxa <- vector(length=length(asvs))
+
+i <- 1
+for (a in asvs){
+    taxa[i] <- taxonomy[taxonomy$Feature.ID==a,"Taxon"]
+    i <- i + 1
+}
+
+taxa_clean <- give_nickname(taxa, one_name = TRUE)
+taxa_phylum <- give_nickname(taxa, one_name = TRUE, phylum = TRUE)
+#rarefied_table_tax <- rarefied_table
+#rownames(rarefied_table_tax) <- taxa_clean
+#rownames(metadata) <- metadata$SampleID
+
+t.table <- t(table)
+rs <- rowSums(t.table)
+df <- as.data.frame(rs)
+df <- df %>%
+  rename("otus" = "rs")
+
+# write.csv(df, "data/hf_otus.csv", row.names=TRUE)
+```
+
+
+
+# Get Firmicutes:Bacteriodes ratio
+```{r}
+table_phy <- table
+sums <- rowSums(table_phy)
+table_phy <- as.data.frame(table_phy)
+table_phy$phylum <- taxa_phylum
+table_phy$sums <- sums
+tp_firm <- filter(table_phy, phylum == "Firmicutes")
+tp_bac <- filter(table_phy, phylum == "Bacteroidota")
+
+tp_firm <- sapply(tp_firm, as.numeric)
+tp_firm <- t(tp_firm)
+f_sums <- rowSums(tp_firm)
+tp_firm <- as.data.frame(tp_firm)
+tp_firm$firm_sums <- f_sums
+df_firm <- select(tp_firm, firm_sums)
+df_firm$ID <- row.names(df_firm)
+
+
+tp_bac <- sapply(tp_bac, as.numeric)
+tp_bac <- t(tp_bac)
+b_sums <- rowSums(tp_bac)
+tp_bac <- as.data.frame(tp_bac)
+tp_bac$bac_sums <- b_sums
+df_bac <- select(tp_bac, bac_sums)
+
+df_ratio <- cbind(df_firm, df_bac)
+df_ratio$firm_bac_ratio <- df_ratio$firm_sums / df_ratio$bac_sums
+df_ratio <- filter(df_ratio, ID != "phylum" & ID != "sums")
+
+
+
+# write.csv(df_ratio, "data/hf_ratios.csv", row.names=FALSE)
+
+```
+
+
+# Categorize weights
+```{r}
+df <- read_csv("data/hf_meta_weights.csv")
+df$Weight <- as.numeric(df$Weight)
+sd_w <- sd(df$Weight, na.rm=T)
+r_w <- range(df$Weight, na.rm=T)
+rw_length <- r_w[2] - r_w[1]
+steps <- rw_length/3
+q1 <- r_w[1] + steps
+q2 <- r_w[2] - steps
+
+df$Weight_group <- ifelse(df$Weight < q1,
+                          df$Weight_group <- "Low",
+                          ifelse(df$Weight < q2,
+                                 df$Weight_group <- "Medium",
+                                 "High"))
+
+# write.csv(df, "data/hf_meta_weights.csv", row.names=FALSE)
+```
+
+
+
+# Alpha diversity
+```{r}
+# "signif" files made in qiime visualizer
+# download from viewing group significance qzvs
+# then downloaded raw data as tsvs
+shan <- read_q2metadata("cd_new_results/shannon_hf_signif.tsv") 
+faith <- read_q2metadata("cd_new_results/faith_hf_signif.tsv")
+even <- read_q2metadata("cd_new_results/evenness_hf_signif.tsv")
+
+alpha_table <- shan
+names(alpha_table)[names(alpha_table) == "shannon_entropy"] <- "Shannon"
+alpha_table$Faith <- faith$faith_pd
+alpha_table$Evenness <- even$pielou_evenness
+
+# write.csv(alpha_table, "alpha_scores.csv", row.names=FALSE)
+
+
+# analysis
+kruskal.test(Shannon ~ Diet, data = alpha_table)
+kruskal.test(Faith ~ Diet, data = alpha_table)
+kruskal.test(Evenness ~ Diet, data = alpha_table)
+
+kruskal.test(Shannon ~ Treatment, data = alpha_table)
+# kruskal.test(Faith ~ Treatment, data = alpha_table)
+# kruskal.test(Evenness ~ Treatment, data = alpha_table)
+
+alpha_long <- pivot_longer(alpha_table, 
+                            cols = c("Shannon", "Faith", "Evenness"),
+                            names_to = "Metric",
+                            values_to = "Alpha_score")
+
+alpha_plot <- ggplot(data = alpha_long, aes(x = Diet, y = Alpha_score, fill = Diet)) +
+  geom_boxplot() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        legend.position = "none") +
+  scale_fill_manual(values=c("#A73325", "#016796")) +
+  labs(x = "Diet",
+       y = "Diversity score") +
+  facet_wrap(~ Metric, scales = "free")
+alpha_plot
+```
+
+## Richness
+```{r}
+SVs <- read_qza("data/hf_weights_table.qza")$data
+SVs <- t(SVs)
+list <- rowSums(SVs)
+list <- t(t(list))
+df_svs <- as.data.frame(SVs)
+df_svs$counts <- list
+
+df_svs <- select(df_svs, counts)
+
+rare <- read_qza("cd_new_results/rarefied_table.qza")$data
+rare <- t(rare)
+list <- rowSums(rare)
+list <- t(t(list))
+r_df <- as.data.frame(rare)
+r_counts <- r_df
+r_counts$counts <- list
+
+r_counts <- select(r_counts, counts)
+#write.csv(r_df, "rarefied_richness.csv", row.names=TRUE)
+
+# number of species per sample
+r_bi <- apply(r_df, 2, function(x) ifelse(x != 0, 1, x))
+list <- rowSums(r_bi)
+list <- t(t(list))
+r_counts <- r_bi
+r_counts <- as.data.frame(r_counts)
+r_counts$counts <- list
+
+#hist(r_counts)
+
+r_counts <- dplyr::select(r_counts, counts)
+#write.csv(r_counts, "rarefied_richness.csv", row.names=TRUE)
+```
+
+
+
+# Beta diversity
+## PCoA: Weighted UniFrac
+
+```{r}
+metadata <- read_q2metadata("data/hf_meta_weights.tsv")
+rownames(metadata) <- metadata$SampleID
+
+pcoa_w_uni <- read_qza("cd_new_results/weighted_unifrac_pcoa_results.qza")$data
+
+# PCoA plot with weighted UniFrac
+pcoa_w_uni_plotdata <- pcoa_w_uni$Vectors
+rownames(metadata) <- metadata$SampleID
+rownames(pcoa_w_uni_plotdata) <- pcoa_w_uni_plotdata$SampleID
+pcoa_w_uni_plotdata <- merge(pcoa_w_uni_plotdata, metadata)
+
+w_unipcoa <- select(pcoa_w_uni_plotdata, PC1, PC2)
+w_unipcoa <- data.matrix(w_unipcoa)
+rownames(w_unipcoa) <- pcoa_w_uni_plotdata$SampleID
+
+
+ggplot(data=pcoa_w_uni_plotdata,
+       mapping=aes(x=PC1,
+                   y=PC2,
+                   label=Mouse)) +
+  geom_text(aes(group = TreatDiet), color = "black") +
+  stat_ellipse(aes(color = TreatDiet), level =.95) +
+  geom_point(aes(fill = TreatDiet), alpha = .6, size=8, pch = 21) +
+  scale_fill_manual(values=c("Mv + CD" = "#FCB5AF",
+                             "BBS + CD" = "#ADD4ED",
+                             "Mv + WD" = "#A73325",
+                             "BBS + WD" = "#016796")) +
+  scale_color_manual(values=c("Mv + CD" = "#FCB5AF",
+                             "BBS + CD" = "#ADD4ED",
+                             "Mv + WD" = "#A73325",
+                             "BBS + WD" = "#016796")) +
+  xlab(paste0("PC1 (", round(pcoa_w_uni$ProportionExplained[1]*100, 1), "%)")) +
+  ylab(paste0("PC2 (", round(pcoa_w_uni$ProportionExplained[2]*100, 1), "%)")) +
+  theme_bw() +
+  theme(text = element_text(size=16),
+          legend.text=element_text(size=16),
+          axis.text.x = element_text(size = 18),
+          axis.text.y = element_text(size = 18),
+          axis.title = element_text(size = 18),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank()) +
+  facet_wrap(~Timepoint)
+
+#ggsave("PCOA_paneled_time.png", width = 11, height = 8, units = "in")
+```
+
+#### PCoA: Biplots/Timepoints
+Separate PCoA graphs for each timepoint
+```{r}
+metadata <- read_q2metadata("data/hf_meta_weights.tsv")
+rownames(metadata) <- metadata$SampleID
+metadata$TreatDiet <- paste(metadata$Treatment, metadata$Diet, sep = " - ")
+metadata$TreatDiet <- as.factor(metadata$TreatDiet)
+
+pcoa_w_uni <- read_qza("cd_new_results/weighted_unifrac_pcoa_results.qza")$data
+
+# PCoA plot with weighted UniFrac
+pcoa_w_uni_plotdata <- pcoa_w_uni$Vectors
+rownames(metadata) <- metadata$SampleID
+rownames(pcoa_w_uni_plotdata) <- pcoa_w_uni_plotdata$SampleID
+pcoa_w_uni_plotdata <- merge(pcoa_w_uni_plotdata, metadata)
+
+w_unipcoa <- select(pcoa_w_uni_plotdata, PC1, PC2)
+w_unipcoa <- data.matrix(w_unipcoa)
+rownames(w_unipcoa) <- pcoa_w_uni_plotdata$SampleID
+
+pcoa_t1 <- filter(pcoa_w_uni_plotdata, Timepoint == "1")
+pcoa_t2 <- filter(pcoa_w_uni_plotdata, Timepoint == "2")
+pcoa_t3 <- filter(pcoa_w_uni_plotdata, Timepoint == "3")
+pcoa_t4 <- filter(pcoa_w_uni_plotdata, Timepoint == "4")
+
+
+p1_mat <- dplyr::select(pcoa_t1, 2:181)
+p1_var <- apply(p1_mat,2, var)
+p1_var <- round(p1_var / sum(p1_var) * 100, 1)
+
+ggplot(data=pcoa_t1,
+            mapping=aes(x=PC1, 
+                        y=PC2,
+                        label=Mouse)) +
+    geom_text(aes(group = TreatDiet), color = "black") +
+    stat_ellipse(aes(color = Diet), level =.95) +
+    geom_point(aes(fill = TreatDiet), alpha = .6, size=8, pch = 21) +
+    scale_fill_manual(values=c("M. vaccae - CD" = "#FCB5AF",
+                                "BBS - CD" = "#ADD4ED",
+                                "M. vaccae - WD" = "#A73325",
+                                "BBS - WD" = "#016796")) +
+    scale_color_manual(values=c("WD" = "#A73325",
+                              "CD" = "#ADD4ED")) +
+    theme_bw() + 
+    #scale_color_discrete(name="") +
+    xlab(paste0("PC1 (", p1_var[1], "%)")) +
+    ylab(paste0("PC2 (", p1_var[2], "%)")) +
+    theme(text = element_text(size=16),
+          legend.text=element_text(size=16),
+          axis.text.x = element_text(size = 18),
+          axis.text.y = element_text(size = 18),
+          axis.title = element_text(size = 18),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
+#ggsave("figures/PCOA_T1.png", width = 11, height = 8, units = "in")
+
+p2_mat <- dplyr::select(pcoa_t2, 2:181)
+p2_var <- apply(p2_mat,2,var)
+p2_var <- round(p2_var / sum(p2_var) * 100, 1)
+
+ggplot(data=pcoa_t2,
+            mapping=aes(x=PC1, 
+                        y=PC2,
+                        label=Mouse)) +
+    geom_text(aes(group = TreatDiet), color = "black") +
+    stat_ellipse(aes(color = Diet), level =.95) +
+    geom_point(aes(fill = TreatDiet), alpha = .6, size=8, pch = 21) +
+    scale_fill_manual(values=c("M. vaccae - CD" = "#FCB5AF",
+                                "BBS - CD" = "#ADD4ED",
+                                "M. vaccae - WD" = "#A73325",
+                                "BBS - WD" = "#016796")) +
+    scale_color_manual(values=c("WD" = "#A73325",
+                              "CD" = "#ADD4ED")) +
+    theme_bw() + 
+    #scale_color_discrete(name="") +
+    xlab(paste0("PC1 (", p2_var[1], "%)")) +
+    ylab(paste0("PC2 (", p2_var[2], "%)")) +
+    theme(text = element_text(size=16),
+          legend.text=element_text(size=16),
+          axis.text.x = element_text(size = 18),
+          axis.text.y = element_text(size = 18),
+          axis.title = element_text(size = 18),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
+#ggsave("figures/PCOA_T2.png", width = 11, height = 8, units = "in")
+
+
+p3_mat <- dplyr::select(pcoa_t3, 2:181)
+p3_var <- apply(p3_mat,2,var)
+p3_var <- round(p3_var / sum(p3_var) * 100, 1)
+
+ggplot(data=pcoa_t3,
+            mapping=aes(x=PC1, 
+                        y=PC2,
+                        label=Mouse)) +
+    geom_text(aes(group = TreatDiet), color = "black") +
+    stat_ellipse(aes(color = Diet), level =.95) +
+    geom_point(aes(fill = TreatDiet), alpha = .6, size=8, pch = 21) +
+    scale_fill_manual(values=c("M. vaccae - CD" = "#FCB5AF",
+                                "BBS - CD" = "#ADD4ED",
+                                "M. vaccae - WD" = "#A73325",
+                                "BBS - WD" = "#016796")) +
+    scale_color_manual(values=c("WD" = "#A73325",
+                              "CD" = "#ADD4ED")) +
+    theme_bw() + 
+    #scale_color_discrete(name="") +
+    xlab(paste0("PC1 (", p3_var[1], "%)")) +
+    ylab(paste0("PC2 (", p3_var[2], "%)")) +
+    theme(text = element_text(size=16),
+          legend.text=element_text(size=16),
+          axis.text.x = element_text(size = 18),
+          axis.text.y = element_text(size = 18),
+          axis.title = element_text(size = 18),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
+#ggsave("figures/PCOA_T3.png", width = 11, height = 8, units = "in")
+
+
+p4_mat <- dplyr::select(pcoa_t4, 2:181)
+p4_var <- apply(p4_mat,2,var)
+p4_var <- round(p4_var / sum(p4_var) * 100, 1)
+
+ggplot(data=pcoa_t4,
+            mapping=aes(x=PC1, 
+                        y=PC2,
+                        label=Mouse)) +
+    geom_text(aes(group = TreatDiet), color = "black") +
+    stat_ellipse(aes(color = Diet), level =.95) +
+    geom_point(aes(fill = TreatDiet), alpha = .6, size=8, pch = 21) +
+    scale_fill_manual(values=c("M. vaccae - CD" = "#FCB5AF",
+                                "BBS - CD" = "#ADD4ED",
+                                "M. vaccae - WD" = "#A73325",
+                                "BBS - WD" = "#016796")) +
+    scale_color_manual(values=c("WD" = "#A73325",
+                              "CD" = "#ADD4ED")) +
+    theme_bw() + 
+    #scale_color_discrete(name="") +
+    xlab(paste0("PC1 (", p4_var[1], "%)")) +
+    ylab(paste0("PC2 (", p4_var[2], "%)")) +
+    theme(text = element_text(size=16),
+          legend.text=element_text(size=16),
+          axis.text.x = element_text(size = 18),
+          axis.text.y = element_text(size = 18),
+          axis.title = element_text(size = 18),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
+#ggsave("figures/PCOA_T4.png", width = 11, height = 8, units = "in")
+```
+
+# Differential Expression
+## ANCOM-BC2
+Ancom with Bias Correction (BC). From John Sterrett
+
+### ASV level
+
+```{r}
+metadata <- read_q2metadata("data/hf_meta_weights.tsv")
+rownames(metadata) <- metadata$SampleID
+metadata$Timepoint <- as.numeric(metadata$Timepoint)
+metadata$Treatment <- fct_recode(metadata$Treatment,
+                                 "Mv" = "M. vaccae",
+                                 "BBS" = "BBS")
+
+new_col <- rep(NA, nrow(metadata))
+
+for (row in 1:nrow(metadata)){
+    new_col[row] <- paste(metadata[row, 7], metadata[row, 8], sep="_")
+}
+metadata$Treat_Diet <- new_col
+metadata$Treat_Diet <- as.factor(metadata$Treat_Diet)
+
+new_col2 <- rep(NA, nrow(metadata))
+for (row in 1:nrow(metadata)){
+    new_col2[row] <- paste(metadata[row, 7], metadata[row, 10], sep="_")
+}
+metadata$Treat_Weight <- new_col2
+metadata$Treat_Weight <- as.factor(metadata$Treat_Weight)
+rownames(metadata) <- metadata$SampleID
+
+SVs <- read_qza("data/hf_table.qza")$data
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data %>% parse_taxonomy()
+fam_names <- taxonomy$Family
+
+
+rarefied_table <- read_qza("cd_new_results/rarefied_table.qza")$data
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data
+asvs <- rownames(rarefied_table)
+taxa <- vector(length=length(asvs))
+
+i <- 1
+for (a in asvs){
+    taxa[i] <- taxonomy[taxonomy$Feature.ID==a,"Taxon"]
+    i <- i + 1
+}
+
+taxa_clean <- give_nickname(taxa, one_name = T)
+rarefied_table_tax <- rarefied_table
+rownames(rarefied_table_tax) <- taxa_clean
+
+p.dat <- phyloseq(otu_table(rarefied_table, taxa_are_rows=T), 
+                  taxa_names(taxonomy),
+                  sample_data(metadata))
+
+# biplots: can make one for each group (treat, diet, time)
+# maybe one that's affected by both diet_treat
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_asv.rds")) {
+  ancom.time.ost.me <- readRDS("ancom/ancom_asv.rds")
+} else {
+  ancom.time.ost.me <- ancombc2(data=p.dat, 
+                              fix_formula="Treat_Diet + Timepoint", 
+                              rand_formula="(1|Mouse)",
+                              tax_level="Species",
+                              p_adj_method="fdr")
+  saveRDS(ancom.time.ost.me, "ancom/ancom_asv.rds")
+}
+
+
+# get results
+res <- ancom.time.ost.me$res
+# create a named list to access the actual taxonomy
+tax.map <- taxonomy$Taxon
+names(tax.map) <- taxonomy$Feature.ID
+
+# add the taxonomy name
+res$name <- tax.map[res$taxon]
+
+res_nicknames <- give_nickname(names = res$name, one_name = TRUE)
+res$nickname <- res_nicknames
+
+
+# make table
+res[order(res$`q_Timepoint`),] %>% 
+    select(name,
+           nickname,
+           taxon,
+           lfc_Timepoint,
+           q_Timepoint,
+           lfc_Treat_DietMv_WD,
+           q_Treat_DietMv_WD,
+           lfc_Treat_DietBBS_WD,
+           q_Treat_DietBBS_WD) %>%
+    DT::datatable()
+
+res_top_q <- filter(res,
+                    q_Treat_DietMv_WD < .05,
+                    q_Timepoint < .05,
+                    q_Treat_DietBBS_WD < .05)
+
+res_top <- filter(res,
+                  lfc_Treat_DietMv_WD < -1 | lfc_Treat_DietMv_WD > 1,
+                  q_Treat_DietMv_WD < .05,
+                  lfc_Treat_DietBBS_WD < -1 | lfc_Treat_DietBBS_WD > 1,
+                  q_Treat_DietBBS_WD < .05,
+                  q_Timepoint < .05)
+
+res_top_2 <- filter(res,
+                  lfc_Treat_DietMv_WD < -2 | lfc_Treat_DietMv_WD > 2,
+                  q_Treat_DietMv_WD < .05,
+                  lfc_Treat_DietBBS_WD < -2 | lfc_Treat_DietBBS_WD > 2,
+                  q_Treat_DietBBS_WD < .05,
+                  q_Timepoint < .05)
+
+#write.csv(x = res_top, file = "ancom/results_ancom_ASV_Treat-Diet_Timepoint.csv", row.names = F)
+#write.csv(x = res_top, file = "ancom/results_ancom_ASV_Treat-Diet_Timepoint_lfc1.csv", row.names = F)
+#write.csv(x = res_top_2, file = "ancom/results_ancom_ASV_Treat-Diet_Timepoint_lfc2.csv", row.names = F)
+
+```
+
+#### ANCOM with 0's: interactions
+```{r}
+metadata <- read_q2metadata("data/hf_meta_weights.tsv")
+rownames(metadata) <- metadata$SampleID
+#metadata$Timepoint <- as.numeric(metadata$Timepoint)
+metadata$Treatment <- fct_recode(metadata$Treatment,
+                                 "1" = "M. vaccae",
+                                 "0" = "BBS")
+metadata$Diet <- fct_recode(metadata$Diet,
+                            "1" = "WD",
+                            "0" = "CD")
+metadata$Timepoint <- fct_recode(metadata$Timepoint,
+                                 "0" = "1",
+                                 "1" = "2",
+                                 "2" = "3",
+                                 "3" = "4")
+
+metadata$Treatment <- as.character(metadata$Treatment)
+metadata$Diet <- as.character(metadata$Diet)
+metadata$Timepoint <- as.character(metadata$Timepoint)
+
+metadata$Treatment <- as.numeric(metadata$Treatment)
+metadata$Diet <- as.numeric(metadata$Diet)
+metadata$Timepoint <- as.numeric(metadata$Timepoint)
+
+metadata$TreatDiet <- metadata$Treatment * metadata$Diet
+metadata$TreatTime <- metadata$Treatment * metadata$Timepoint
+metadata$DietTime <- metadata$Diet * metadata$Timepoint
+metadata$TreatDietTime <- metadata$Treatment*metadata$Diet*metadata$Timepoint
+
+metadata %>% mutate_if(is.factor, as.character) -> meta2
+
+new_row <- c("q2:types",	"categorical",	"categorical",
+             "categorical",	"categorical",	"categorical",	"categorical",
+             "categorical", 
+             "numeric",	
+             "categorical", "categorical",	"categorical",	"categorical",
+             "categorical")
+
+meta3 <- rbind(new_row, meta2)
+
+#write.table(meta3, file = "metadata_interactions.tsv",
+#            row.names = F, sep = "\t", quote = F)
+
+
+SVs <- read_qza("data/hf_table.qza")$data
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data %>% parse_taxonomy()
+fam_names <- taxonomy$Family
+
+rarefied_table <- read_qza("cd_new_results/rarefied_table.qza")$data
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data
+asvs <- rownames(rarefied_table)
+taxa <- vector(length=length(asvs))
+
+i <- 1
+for (a in asvs){
+    taxa[i] <- taxonomy[taxonomy$Feature.ID==a,"Taxon"]
+    i <- i + 1
+}
+
+taxa_clean <- give_nickname(taxa, one_name = T)
+rarefied_table_tax <- rarefied_table
+rownames(rarefied_table_tax) <- taxa_clean
+
+p.dat <- phyloseq(otu_table(rarefied_table, taxa_are_rows=T), 
+                  taxa_names(taxonomy),
+                  sample_data(metadata))
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_asv_interactions.rds")) {
+  ancom.time.ost.me <- readRDS("ancom/ancom_asv_interactions.rds")
+} else {
+  ancom.time.ost.me <- ancombc2(data=p.dat, 
+                              fix_formula="Treatment + Diet + Timepoint + TreatDiet + TreatTime + DietTime + TreatDietTime", 
+                              rand_formula="(1|Mouse)",
+                              tax_level="Species",
+                              p_adj_method="fdr")
+  saveRDS(ancom.time.ost.me, "ancom/ancom_asv_interactions.rds")
+}
+
+# get results
+res <- ancom.time.ost.me$res
+# create a named list to access the actual taxonomy
+tax.map <- taxonomy$Taxon
+names(tax.map) <- taxonomy$Feature.ID
+
+# add the taxonomy name
+res$name <- tax.map[res$taxon]
+
+res_nicknames <- give_nickname(names = res$name, one_name = TRUE)
+res$nickname <- res_nicknames
+
+
+# make table
+res[order(res$`q_Timepoint`),] %>% 
+    select(name,
+           nickname,
+           taxon,
+           lfc_Timepoint,
+           q_Timepoint,
+           lfc_Diet,
+           q_Diet,
+           lfc_DietTime,
+           q_DietTime,
+           lfc_TreatDietTime,
+           q_TreatDietTime) %>%
+    DT::datatable()
+
+# 2 hits
+res_top_time <- filter(res,
+                       q_Timepoint < .05)
+
+# LFC 1: 1 hit
+res_top_time <- filter(res,
+                       q_Timepoint < .05,
+                       lfc_Timepoint < -1 | lfc_Timepoint > 1)
+                    
+# no hits in diet or treatment
+#res_top_diet <- filter(res,
+#                       q_Diet < .05)
+
+# 28 hits
+res_top_diettime <- filter(res,
+                           q_DietTime < .05)
+
+# LFC 1: 16 hits
+res_top_dt_lfc1 <- filter(res,
+                         q_DietTime < .05,
+                         lfc_DietTime < -1 | lfc_DietTime > 1)
+
+# LFC 1.5: 5 hits
+res_top_dt_lfc1.5 <- filter(res,
+                         q_DietTime < .05,
+                         lfc_DietTime < -1.5 | lfc_DietTime > 1.5)
+
+
+# LFC 2: 2 hits
+res_top_dt_lfc2 <- filter(res,
+                         q_DietTime < .05,
+                         lfc_DietTime < -2 | lfc_DietTime > 2)
+
+
+
+## SUBSET Timepoints
+## TIMEPOINT 1
+t1 <- filter(metadata,
+             Timepoint == 0)
+
+rare_t1 <- subset(x = rarefied_table, select = t1$SampleID)
+
+p.dat.t1 <- phyloseq(otu_table(rare_t1, taxa_are_rows=T), 
+                  taxa_names(taxonomy),
+                  sample_data(t1))
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_asv_time1.rds")) {
+  ancom.t1 <- readRDS("ancom/ancom_asv_time1.rds")
+} else {
+  ancom.t1 <- ancombc2(data=p.dat.t1, 
+                              fix_formula="Treatment + Diet + TreatDiet",
+                              tax_level="Species",
+                              p_adj_method="fdr")
+  saveRDS(ancom.t1, "ancom/ancom_asv_time1.rds")
+}
+
+res_t1 <- ancom.t1$res
+tax.map <- taxonomy$Taxon
+names(tax.map) <- taxonomy$Feature.ID
+res_t1$name <- tax.map[res_t1$taxon]
+res_nicknames <- give_nickname(names = res_t1$name, one_name = TRUE)
+res_t1$nickname <- res_nicknames
+
+res_t1[order(res_t1$`q_Treatment`),] %>% 
+    select(name,
+           nickname,
+           taxon,
+           lfc_Diet,
+           q_Diet,
+           lfc_Treatment,
+           q_Treatment,
+           lfc_TreatDiet,
+           q_TreatDiet) %>%
+    DT::datatable()
+
+
+
+res1_time <- filter(res_t1,
+                    q_Treatment < .05)
+res1_diet <- filter(res_t1,
+                    q_Diet < .05)
+res1_treatdiet <- filter(res_t1,
+                         q_TreatDiet < .05)
+
+
+## TIMEPOINT 2
+t2 <- filter(metadata,
+             Timepoint == 1)
+rare_t2 <- subset(x = rarefied_table, select = t2$SampleID)
+
+p.dat.t2 <- phyloseq(otu_table(rare_t2, taxa_are_rows=T), 
+                  taxa_names(taxonomy),
+                  sample_data(t2))
+
+# Run ANCOM BC
+# not working on timepoint 2
+# if (file.exists("ancom/ancom_asv_time2.rds")) {
+#   ancom.t2 <- readRDS("ancom/ancom_asv_time2.rds")
+# } else {
+#   ancom.t2 <- ancombc2(data=p.dat.t2, 
+#                               fix_formula="Treatment + Diet + TreatDiet",
+#                               tax_level="Species",
+#                               p_adj_method="fdr")
+#   saveRDS(ancom.t2, "ancom/ancom_asv_time2.rds")
+# }
+
+
+### TIMEPOINT 1 vs 4
+t14 <- filter(metadata,
+              Timepoint == 0 | Timepoint == 3)
+
+rare_t14 <- subset(x = rarefied_table, select = t14$SampleID)
+
+p.dat.t14 <- phyloseq(otu_table(rare_t14, taxa_are_rows=T), 
+                  taxa_names(taxonomy),
+                  sample_data(t14))
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_asv_time14.rds")) {
+  ancom.t14 <- readRDS("ancom/ancom_asv_time14.rds")
+} else {
+  ancom.t14 <- ancombc2(data=p.dat.t14, 
+                        fix_formula="Treatment + Diet + Timepoint + TreatDiet + TreatTime + DietTime + TreatDietTime",
+                        tax_level="Species",
+                        rand_formula="(1|Mouse)",
+                        p_adj_method="fdr")
+  saveRDS(ancom.t14, "ancom/ancom_asv_time14.rds")
+}
+
+res_t14 <- ancom.t14$res
+tax.map <- taxonomy$Taxon
+names(tax.map) <- taxonomy$Feature.ID
+res_t14$name <- tax.map[res_t14$taxon]
+res_nicknames <- give_nickname(names = res_t14$name, one_name = TRUE)
+res_t14$nickname <- res_nicknames
+
+res_t14[order(res_t14$`q_Diet`),] %>% 
+    select(name,
+           nickname,
+           taxon,
+           lfc_Timepoint,
+           q_Timepoint,
+           lfc_Diet,
+           q_Diet,
+           lfc_DietTime,
+           q_DietTime,
+           lfc_TreatDietTime,
+           q_TreatDietTime,
+           lfc_Treatment,
+           q_Treatment,
+           lfc_TreatTime,
+           q_TreatTime,
+           lfc_TreatDiet,
+           q_TreatDiet,) %>%
+    DT::datatable()
+
+
+
+res14_time <- filter(res_t1,
+                    q_Treatment < .05)
+res1_diet <- filter(res_t1,
+                    q_Diet < .05)
+res1_treatdiet <- filter(res_t1,
+                         q_TreatDiet < .05)
+
+
+#write.csv(x = res, file = "ancom/results_ancom_ASV_interactions.csv", row.names = F)
+#write.csv(x = res_t14, file = "ancom/results_ancom_ASV_interactions_time1and4.csv", row.names = F)
+
+```
+
+
+#### Volcano
+```{r}
+EnhancedVolcano(res,
+                lab = res$nickname,
+                x = 'lfc_DietTime',
+                y = 'q_DietTime',
+                ylim = c(0, 7.5),
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                gridlines.major = FALSE,
+                gridlines.minor = FALSE,
+                boxedLabels = TRUE)
+
+
+time <- EnhancedVolcano(res,
+                lab = res$nickname,
+                x = 'lfc_Timepoint',
+                y = 'q_Timepoint',
+                ylim = c(0, 7.5),
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                widthConnectors = 0.75,
+                gridlines.major = FALSE,
+                gridlines.minor = FALSE)
+time + ggplot2::scale_x_continuous(
+           breaks=seq(-4.5,4.5, 1.5))
+
+time14 <- EnhancedVolcano(res,
+                lab = res$nickname,
+                x = 'lfc_Timepoint',
+                y = 'q_Timepoint',
+                ylim = c(0, 7.5),
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                widthConnectors = 0.75,
+                gridlines.major = FALSE,
+                gridlines.minor = FALSE)
+time14 + ggplot2::scale_x_continuous(
+           breaks=seq(-4.5,4.5, 1.5))
+
+diettime14 <- EnhancedVolcano(res,
+                lab = res$nickname,
+                x = 'lfc_Timepoint',
+                y = 'q_Timepoint',
+                ylim = c(0, 7.5),
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                widthConnectors = 0.75,
+                gridlines.major = FALSE,
+                gridlines.minor = FALSE)
+diettime14 + ggplot2::scale_x_continuous(
+           breaks=seq(-4.5,4.5, 1.5))
+
+```
+
+
+### ANCOM Genus level
+```{r}
+metadata <- read_q2metadata("data/hf_meta_weights.tsv")
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data
+
+p.dat <- qiime2R::qza_to_phyloseq(features = "cd_new_results/rarefied_table.qza",
+                                  metadata = "data/hf_meta_weights.tsv",
+                                  taxonomy = "data/taxonomy-silva.qza")
+
+p.dat <- subset_taxa(p.dat, Genus != "uncultured")
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_genus.rds")) {
+  ancom.time.ost.me <- readRDS("ancom/ancom_genus.rds")
+} else {
+  ancom.time.ost.me <- ancombc2(data=p.dat, 
+                                fix_formula="Timepoint+Treatment+Diet+Weight_group", 
+                                tax_level="Genus",
+                                p_adj_method="fdr")
+  saveRDS(ancom.time.ost.me, "ancom/ancom_genus.rds")
+}
+
+
+# get results
+res <- ancom.time.ost.me$res
+# create a named list to access the actual taxonomy
+tax.map <- taxonomy$Taxon
+names(tax.map) <- taxonomy$Feature.ID
+
+# add the taxonomy name
+res$name <- tax.map[res$taxon]
+
+
+# make table
+res[order(res$`q_Timepoint2`),] %>% 
+    select(name,
+           taxon,
+           lfc_Timepoint4,
+           q_Timepoint4,
+           lfc_DietWD,
+           q_DietWD,
+           'lfc_TreatmentM. vaccae',
+           'q_TreatmentM. vaccae') %>%
+    DT::datatable()
+
+res_top <- filter(res,
+                  q_DietWD < .05)
+
+#write.csv(x = res, file = "ancom/results_ancom_genus.csv", row.names = F)
+
+```
+
+
+#### Genus: Interactions
+Help obtained from:
+https://joey711.github.io/phyloseq-demo/phyloseq-demo-slides.html
+
+```{r}
+# Prep data
+rarefied_table <- read_qza("cd_new_results/rarefied_table.qza")$data
+# create a named list to access the actual taxonomy
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data
+asvs <- rownames(rarefied_table)
+taxa <- vector(length=length(asvs))
+
+i <- 1
+for (a in asvs){
+    taxa[i] <- taxonomy[taxonomy$Feature.ID==a,"Taxon"]
+    i <- i + 1
+}
+
+
+tax.map <- taxonomy$Taxon
+names(tax.map) <- taxonomy$Feature.ID
+
+# Make phyloseq
+p.dat <- qiime2R::qza_to_phyloseq(features = "cd_new_results/rarefied_table.qza",
+                                  metadata = "data/metadata_interactions.tsv",
+                                  taxonomy = "data/taxonomy-silva.qza")
+
+p.dat <- subset_taxa(p.dat, Genus != "uncultured")
+
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_genus_interactions.rds")) {
+  ancom.time.ost.me <- readRDS("ancom/ancom_genus_interactions.rds")
+} else {
+  ancom.time.ost.me <- ancombc2(data=p.dat, 
+                              fix_formula="Treatment + Diet + Timepoint + TreatDiet + TreatTime + DietTime + TreatDietTime", 
+                              rand_formula="(1|Mouse)",
+                              tax_level= "Genus",
+                              p_adj_method="fdr")
+  saveRDS(ancom.time.ost.me, "ancom/ancom_genus_interactions.rds")
+}
+
+# get results
+res <- ancom.time.ost.me$res
+
+
+# add the taxonomy name
+res$name <- tax.map[res$taxon]
+res_nicknames <- give_nickname(names = res$name, genus = TRUE)
+res$nickname <- res_nicknames
+
+
+# make table
+res[order(res$`q_Timepoint1`),] %>% 
+    select(name,
+           nickname,
+           taxon,
+           lfc_Timepoint1,
+           q_Timepoint1,
+           lfc_Diet1,
+           q_Diet1,
+           lfc_DietTime1,
+           q_DietTime1,
+           lfc_TreatDietTime1,
+           q_TreatDietTime1) %>%
+    DT::datatable()
+
+#####
+# Individual timepoints
+# TIMEPOINT 1
+p.dat1 <- subset_samples(p.dat, Timepoint != "1")
+p.dat1 <- subset_samples(p.dat1, Timepoint != "2")
+p.dat1 <- subset_samples(p.dat1, Timepoint != "3")
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_genus_t1.rds")) {
+  ancom.genus1 <- readRDS("ancom/ancom_genus_t1.rds")
+} else {
+  ancom.genus1 <- ancombc2(data=p.dat1, 
+                              fix_formula="Treatment + Diet + TreatDiet",
+                              tax_level= "Genus",
+                              p_adj_method="fdr")
+  saveRDS(ancom.genus1, "ancom/ancom_genus_t1.rds")
+}
+
+# get results
+res1 <- ancom.genus1$res
+
+# add the taxonomy name
+res1$name <- tax.map[res1$taxon]
+res_nicknames <- give_nickname(names = res1$name, genus = TRUE)
+res1$nickname <- res_nicknames
+
+# make table
+res1[order(res1$`q_Diet1`),] %>% 
+    select(name,
+           nickname,
+           taxon,
+           lfc_Diet1,
+           q_Diet1,
+           lfc_Treatment1,
+           q_Treatment1,
+           lfc_TreatDiet1,
+           q_TreatDiet1) %>%
+    DT::datatable()
+
+#####
+# TIMEPOINT 2
+p.dat2 <- subset_samples(p.dat, Timepoint != "0")
+p.dat2 <- subset_samples(p.dat2, Timepoint != "2")
+p.dat2 <- subset_samples(p.dat2, Timepoint != "3")
+
+# Filtering low-variance OTUs
+p.dat2 = transform_sample_counts(p.dat2, function(x) x/sum(x))
+p.dat2 = filter_taxa(p.dat2, function(x) var(x) > 1e-05, TRUE)
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_genus_t2.rds")) {
+  ancom.genus2 <- readRDS("ancom/ancom_genus_t2.rds")
+} else {
+  ancom.genus2 <- ancombc2(data=p.dat2, 
+                              fix_formula="Treatment + Diet + TreatDiet",
+                              tax_level= "Genus",
+                              p_adj_method="fdr")
+  saveRDS(ancom.genus2, "ancom/ancom_genus_t2.rds")
+}
+
+# get results
+res2 <- ancom.genus2$res
+
+# add the taxonomy name
+res2$name <- tax.map[res2$taxon]
+res_nicknames <- give_nickname(names = res2$name, genus = TRUE)
+res2$nickname <- res_nicknames
+
+# make table
+res2[order(res2$`q_Diet1`),] %>% 
+    select(name,
+           nickname,
+           taxon,
+           lfc_Diet1,
+           q_Diet1,
+           lfc_Treatment1,
+           q_Treatment1,
+           lfc_TreatDiet1,
+           q_TreatDiet1) %>%
+    DT::datatable()
+
+
+#####
+# TIMEPOINT 3
+p.dat3 <- subset_samples(p.dat, Timepoint != "0")
+p.dat3 <- subset_samples(p.dat3, Timepoint != "1")
+p.dat3 <- subset_samples(p.dat3, Timepoint != "3")
+
+# Filtering low-variance OTUs
+p.dat3 = transform_sample_counts(p.dat3, function(x) x/sum(x))
+p.dat3 = filter_taxa(p.dat3, function(x) var(x) > 1e-05, TRUE)
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_genus_t3.rds")) {
+  ancom.genus3 <- readRDS("ancom/ancom_genus_t3.rds")
+} else {
+  ancom.genus3 <- ancombc2(data=p.dat3,
+                           fix_formula="Treatment + Diet + TreatDiet",
+                           tax_level= "Genus",
+                           p_adj_method="fdr")
+  saveRDS(ancom.genus3, "ancom/ancom_genus_t3.rds")
+}
+
+# get results
+res3 <- ancom.genus3$res
+
+# add the taxonomy name
+res3$name <- tax.map[res3$taxon]
+res_nicknames <- give_nickname(names = res3$name, genus = TRUE)
+res3$nickname <- res_nicknames
+
+# make table
+res3[order(res3$`q_Diet1`),] %>% 
+    select(name,
+           nickname,
+           taxon,
+           lfc_Diet1,
+           q_Diet1,
+           lfc_Treatment1,
+           q_Treatment1,
+           lfc_TreatDiet1,
+           q_TreatDiet1) %>%
+    DT::datatable()
+
+##### 
+# TIMEPOINT 4
+p.dat4 <- subset_samples(p.dat, Timepoint != "0")
+p.dat4 <- subset_samples(p.dat4, Timepoint != "1")
+p.dat4 <- subset_samples(p.dat4, Timepoint != "2")
+
+# Filtering low-variance OTUs
+p.dat4 = transform_sample_counts(p.dat4, function(x) x/sum(x))
+p.dat4 = filter_taxa(p.dat4, function(x) var(x) > 1e-05, TRUE)
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_genus_t4.rds")) {
+  ancom.genus4 <- readRDS("ancom/ancom_genus_t4.rds")
+} else {
+  ancom.genus4 <- ancombc2(data=p.dat4,
+                           fix_formula="Treatment + Diet + TreatDiet",
+                           tax_level= "Genus",
+                           p_adj_method="fdr")
+  saveRDS(ancom.genus4, "ancom/ancom_genus_t4.rds")
+}
+
+# get results
+res4 <- ancom.genus4$res
+
+# add the taxonomy name
+res4$name <- tax.map[res4$taxon]
+res_nicknames <- give_nickname(names = res4$name, genus = TRUE)
+res4$nickname <- res_nicknames
+
+# make table
+res4[order(res4$`q_Diet1`),] %>% 
+    select(name,
+           nickname,
+           taxon,
+           lfc_Diet1,
+           q_Diet1,
+           lfc_Treatment1,
+           q_Treatment1,
+           lfc_TreatDiet1,
+           q_TreatDiet1) %>%
+    DT::datatable()
+
+#write_csv(res, "ancom/ancom_genus_time1-4.csv")
+#write_csv(res1, "ancom/ancom_genus_time1.csv")
+#write_csv(res2, "ancom/ancom_genus_time2.csv")
+#write_csv(res3, "ancom/ancom_genus_time3.csv")
+#write_csv(res4, "ancom/ancom_genus_time4.csv")
+```
+
+
+#### Genus: Sleuthing
+Run the code above.
+Find out which genera belong which nickname and which ASVs are in there
+```{r}
+# top genera
+top_g <- read_csv("data/biplot_table_Hfd_t1-4_raw.csv")
+top_g$taxon <- as.factor(top_g$taxon)
+
+# get representative sequences
+# sequences.fasta made in qiime from rep_seqs.qzv
+seqs <- read.fasta(file = "data/sequences.fasta",
+                   as.string=TRUE,
+                   forceDNAtolower = FALSE)
+
+
+s_df <- as.data.frame(seqs, col.names = F)
+sdf <- t(s_df)
+sdf <- as.data.frame(sdf)
+names(sdf)[1] <- "Sequence"
+
+grab_asvs <- t(seqs)
+g_a <- t(grab_asvs)
+sdf$ASV <- rownames(g_a)
+
+# get taxonomy
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data
+taxonomy_split <- read_qza("data/taxonomy-silva.qza")$data %>% parse_taxonomy()
+taxonomy_split$Feature.ID <- taxonomy$Feature.ID
+
+# filtered by top genera
+top_taxa <- filter(taxonomy_split,
+                   Genus %in% top_g$taxon)
+
+top_seqs <- filter(sdf,
+                   ASV %in% top_taxa$Feature.ID)
+
+top_taxa$Sequence <- top_seqs$Sequence
+
+#write.csv(x = top_taxa, file = "top_ANCOMgenera_seqs.csv", row.names = F)
+
+# LFC + or - 3
+top_g3 <- read_csv("data/biplot_table_Hfd_t1-4_lfc3_raw.csv")
+top_g3$taxon <- as.factor(top_g3$taxon)
+unique_g3 <- levels(top_g3$taxon)
+
+top_taxa3 <- filter(taxonomy_split,
+                    Genus %in% top_g3$taxon)
+
+top_seqs3 <- filter(sdf,
+                    ASV %in% top_taxa3$Feature.ID)
+
+top_taxa3$Sequence <- top_seqs3$Sequence
+
+
+#write.csv(x = top_taxa3, file = "ancom/top_ANCOMgenera_seqs_lfc3.csv", row.names = F)
+
+```
+
+#### Genus: Plotting
+```{r}
+top_g <- read_csv("data/biplot_table_Hfd_t1-4_lfc3_raw.csv")
+top_g$taxon <- as.factor(top_g$taxon)
+top_g$taxon <- fct_recode(top_g$taxon,
+                           "Lachnospiraceae_GCA-900066575" = "GCA-900066575")
+
+top_asvs <- read_csv("ancom/top_ANCOMgenera_seqs_lfc3.csv")
+top_asvs$Genus <- as.factor(top_asvs$Genus)
+top_asvs$Genus <- fct_recode(top_asvs$Genus,
+                             "Lachnospiraceae_GCA-900066575" = "GCA-900066575")
+meta <- read_q2metadata("data/hf_meta_weights.tsv")
+
+# Timepoint 1vs2: Timepoint1 and Diettime1
+m_12 <- filter(meta,
+               Timepoint == "1" | Timepoint == "2")
+rownames(m_12) <- m_12$SampleID
+
+# convert rarefied table to percent abundance
+rarefied_table <- read_qza("cd_new_results/rarefied_table.qza")$data
+ra_avg_mat <- rarefied_table
+
+for (row in 1:nrow(rarefied_table)){
+  for (col in 1:ncol(rarefied_table)){
+    total <- sum(rarefied_table[,col])
+    ra_avg_mat[row, col] <- rarefied_table[row, col]/total * 100
+  }
+}
+
+ra_mat <- t(ra_avg_mat)
+rare_df <- as.data.frame(ra_mat)
+
+# Remove columns that sum in 0
+rare_df <- rare_df[colSums(abs(rare_df), na.rm = TRUE) > 0]
+
+rare_df$SampleID <- rownames(rare_df)
+rare_df$SampleID <- as.factor(rare_df$SampleID)
+t12_rare <- filter(rare_df,
+                   SampleID %in% m_12$SampleID)
+
+rare_12 <- transpose(t12_rare)
+rownames(rare_12) <- colnames(t12_rare)
+colnames(rare_12) <- rownames(t12_rare)
+
+asvs_12 <- rare_12[(row.names(rare_12) %in% top_asvs$Feature.ID),]
+asvs_12$ASV <- rownames(asvs_12)
+
+
+asvs <- rownames(asvs_12)
+genera <- vector(length=length(asvs))
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data %>% parse_taxonomy()
+taxonomy$Feature.ID <- rownames(taxonomy)
+
+i <- 1
+for (a in asvs){
+    genera[i] <- taxonomy[taxonomy$Feature.ID==a,"Genus"]
+    i <- i + 1
+}
+
+asvs_12$Genus <- genera
+asvs_12$Genus <- as.factor(asvs_12$Genus)
+
+top_g_12 <- filter(top_g,
+                   significance_filter == "q_DietTime1" | significance_filter == "q_Timepoint1")
+
+top_asvs_12 <- filter(asvs_12,
+                      Genus %in% top_g_12$taxon)
+
+# reset levels of Genus by changing it to character then factor again
+top_asvs_12$Genus <- as.character(top_asvs_12$Genus)
+top_asvs_12$Genus <- as.factor(top_asvs_12$Genus)
+top_asvs_12$UniqueG <- NA
+
+for (i in 1:nrow(top_asvs_12)){
+  name <- as.character(top_asvs_12$Genus[i])
+  top_asvs_12$UniqueG[i] <- paste(name, "__", as.character(i), sep="")
+}
+
+
+rownames(top_asvs_12) <- top_asvs_12$UniqueG
+filter_12 <- select(top_asvs_12, -Genus, -ASV, -UniqueG)
+top_12 <- transpose(filter_12)
+rownames(top_12) <- colnames(filter_12)
+colnames(top_12) <- rownames(filter_12)
+
+# Remove columns that sum in 0
+top_12 <- mutate_all(top_12, function(x) as.numeric(as.character(x)))
+top_12 <- top_12[colSums(abs(top_12), na.rm = TRUE) > 0]
+
+
+
+m_12_bac <- merge(top_12, m_12, 
+                  by = 'row.names', all = TRUE)
+
+rownames(m_12_bac) <- m_12_bac$Row.names
+m_12_bac <- select(m_12_bac, -Row.names)
+
+# specific to this dataframe, where bacteria are 1:21
+mbac_long <- pivot_longer(m_12_bac,
+                          cols = 1:21,
+                          names_to = c(".value","Number"),
+                          names_sep = "__")
+mbac_long <- select(mbac_long, -Number)
+mbac_long$TreatDiet <- paste(mbac_long$Treatment, "+", mbac_long$Diet)
+
+ggplot(mbac_long, aes(x=Timepoint, y=`Clostridia_UCG-014`, fill=TreatDiet)) +
+  geom_bar(color = "black",
+           stat="summary",
+           fun = mean,
+           position=position_dodge(.95))
+
+# all four timepoints
+rownames(meta) <- meta$SampleID
+
+# convert rarefied table to percent abundance
+rarefied_table <- read_qza("cd_new_results/rarefied_table.qza")$data
+ra_avg_mat <- rarefied_table
+
+for (row in 1:nrow(rarefied_table)){
+  for (col in 1:ncol(rarefied_table)){
+    total <- sum(rarefied_table[,col])
+    ra_avg_mat[row, col] <- rarefied_table[row, col]/total * 100
+  }
+}
+
+ra_mat <- t(ra_avg_mat)
+rare_df <- as.data.frame(ra_mat)
+
+# Remove columns that sum in 0
+rare_df <- rare_df[colSums(abs(rare_df), na.rm = TRUE) > 0]
+
+rare_df$SampleID <- rownames(rare_df)
+rare_df$SampleID <- as.factor(rare_df$SampleID)
+
+rare <- transpose(rare_df)
+rownames(rare) <- colnames(rare_df)
+colnames(rare) <- rownames(rare_df)
+
+asv_df <- rare[(row.names(rare) %in% top_asvs$Feature.ID),]
+asv_df$ASV <- rownames(asv_df)
+
+
+asvs <- rownames(asv_df)
+genera <- vector(length=length(asvs))
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data %>% parse_taxonomy()
+taxonomy$Feature.ID <- rownames(taxonomy)
+
+i <- 1
+for (a in asvs){
+    genera[i] <- taxonomy[taxonomy$Feature.ID==a,"Genus"]
+    i <- i + 1
+}
+
+asv_df$Genus <- genera
+asv_df$Genus <- as.factor(asv_df$Genus)
+asv_df$UniqueG <- NA
+
+for (i in 1:nrow(asv_df)){
+  name <- as.character(asv_df$Genus[i])
+  asv_df$UniqueG[i] <- paste(name, "__", as.character(i), sep="")
+}
+
+
+rownames(asv_df) <- asv_df$UniqueG
+filtered_adf <- select(asv_df, -Genus, -ASV, -UniqueG)
+adf <- transpose(filtered_adf)
+rownames(adf) <- colnames(filtered_adf)
+colnames(adf) <- rownames(filtered_adf)
+
+# Remove columns that sum in 0
+adf <- mutate_all(adf, function(x) as.numeric(as.character(x)))
+adf <- adf[colSums(abs(adf), na.rm = TRUE) > 0]
+adf_cols <- as.numeric(ncol(adf))
+
+
+mbac <- merge(adf, meta, 
+              by = 'row.names', all = TRUE)
+
+rownames(mbac) <- mbac$Row.names
+mbac <- select(mbac, -Row.names)
+
+
+mb_long <- pivot_longer(mbac,
+                        cols = 1:67,
+                        names_to = c(".value","Number"),
+                        names_sep = "__")
+mb_long <- dplyr::select(mb_long, -Number, -Weight_group)
+
+mb_ll <- pivot_longer(mb_long,
+                      cols = 11:20,
+                      names_to = "Genus",
+                      values_to = "Relative_Abundance",
+                      values_drop_na = TRUE)
+
+
+mb_ll$TreatDiet <- paste(mb_ll$Treatment, "+", mb_ll$Diet)
+mb_ll$Genus <- as.factor(mb_ll$Genus)
+mb_ll$Genus <- fct_recode(mb_ll$Genus,
+                          "Lachnospiraceae\nUCG-001" = "Lachnospiraceae_UCG-001",
+                          "Lachnospiraceae\nGCA-900066575" = "GCA-900066575",
+                          "[Eubacterium]\nxylanophilum_group" = "[Eubacterium]_xylanophilum_group",
+                          "Clostridia_vadin\nBB60_group" = "Clostridia_vadinBB60_group")
+
+ggplot(mb_ll, aes(x=Timepoint, y=Relative_Abundance, fill=TreatDiet)) +
+  geom_bar(color = "black",
+           stat="summary",
+           fun = mean,
+           position=position_dodge(.95))+
+  scale_fill_manual(values = c('#ADD4ED', '#016796', '#FCB5AF', '#A73325'))+
+  geom_errorbar(stat="summary",
+                fun = mean,
+                fun.min = function(X) mean(X),
+                fun.max = function(X) mean(X) + std.error(X),
+                position=position_dodge(.95)) +
+   # set labs
+  labs(title= "", 
+       y = "Percent Relative Abundance",
+       x = "Timepoint") +
+  # theme
+  theme_foundation(base_size = 14, base_family = "arial") +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(face = "bold", 
+                              size = 22, hjust = 0.5),
+    axis.line = element_line(linewidth = 1),
+    axis.ticks = element_line(linewidth = 1),
+    axis.title = element_text(face = "bold", size = rel(1)),
+    axis.title.y = element_text(angle = 90, vjust = 2, size=18),
+    axis.title.x = element_text(vjust = -0.2, size=18),
+    axis.text = element_text(size = 14),
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 16),
+    plot.background = element_blank(),
+    legend.title=element_text(size=16),
+    strip.background = element_blank(),
+    strip.text = element_text(face="italic", size = 15),
+    legend.text=element_text(size=16)) +
+  guides(fill=guide_legend(title="Group")) +
+  facet_wrap(~Genus, scales = "free", ncol = 5)
+
+#ggsave("figures/top_genera_ANCOM_panels.png", width = 16, height = 8, units = "in")
+```
+
+
+
+Figure Hex Codes
+M.v/CD = FCB5AF
+M.v/WD = A73325
+BBS/CD = ADD4ED
+BBS/WD = 016796
+
+### ANCOM Phylum level
+```{r}
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data
+
+p.dat <- qiime2R::qza_to_phyloseq(features = "cd_new_results/rarefied_table.qza",
+                                  metadata = "data/hf_meta_weights.tsv",
+                                  taxonomy = "data/taxonomy-silva.qza")
+
+
+# Run ANCOM BC
+if (file.exists("data/ancom_phylum.rds")) {
+  ancom <- readRDS("data/ancom_phylum.rds")
+} else {
+  ancom <- ancombc2(data=p.dat,
+                    fix_formula="Timepoint+Treatment+Diet+Weight_group",
+                    tax_level="Phylum",
+                    p_adj_method="fdr")
+  saveRDS(ancom, "data/ancom_phylum.rds")
+}
+
+
+p.dat2 <- qiime2R::qza_to_phyloseq(features = "cd_new_results/rarefied_table.qza",
+                                  metadata = "data/metadata_interactions.tsv",
+                                  taxonomy = "data/taxonomy-silva.qza")
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_phylum_interactions.rds")) {
+  ancomi <- readRDS("ancom/ancom_phylum_interactions.rds")
+} else {
+  ancomi <- ancombc2(data=p.dat2,
+                     fix_formula="Treatment + Diet + Timepoint + TreatDiet + TreatTime + DietTime + TreatDietTime", 
+                     rand_formula="(1|Mouse)",
+                     tax_level= "Phylum",
+                     p_adj_method="fdr")
+  saveRDS(ancomi, "ancom/ancom_phylum_interactions.rds")
+}
+
+
+# get results
+res2 <- ancomi$res
+# create a named list to access the actual taxonomy
+tax.map <- taxonomy$Taxon
+names(tax.map) <- taxonomy$Feature.ID
+
+# add the taxonomy name
+res2$name <- tax.map[res2$taxon]
+
+
+# make table
+res2[order(res2$`q_Timepoint1`),] %>% 
+    select(name,
+           taxon,
+           lfc_Timepoint1,
+           q_Timepoint1,
+           lfc_Diet1,
+           q_Diet1,
+           lfc_DietTime1,
+           q_DietTime1,
+           lfc_TreatDietTime1,
+           q_TreatDietTime1) %>%
+    DT::datatable()
+
+res_top <- filter(res2,
+                  q_DietTime3 < .05)
+
+#write.csv(x = res2, file = "ancom/results_ancom_phyla.csv", row.names = F)
+```
+
+#### Phylum: Sleuthing
+Run the code above.
+Get the ASVs per phylum to later calculate % abundance.
+```{r}
+# top genera
+top <- read_csv("ancom/results_ancom_phyla_top3.csv")
+top$taxon <- as.factor(top$taxon)
+
+# get representative sequences
+# sequences.fasta made in qiime from rep_seqs.qzv
+seqs <- read.fasta(file = "data/sequences.fasta",
+                   as.string=TRUE,
+                   forceDNAtolower = FALSE)
+
+
+s_df <- as.data.frame(seqs, col.names = F)
+sdf <- t(s_df)
+sdf <- as.data.frame(sdf)
+names(sdf)[1] <- "Sequence"
+
+grab_asvs <- t(seqs)
+g_a <- t(grab_asvs)
+sdf$ASV <- rownames(g_a)
+
+```
+
+#### Phylum: Plotting
+```{r}
+top_p <- read_csv("ancom/results_ancom_phyla_top2.csv")
+top_p$taxon <- as.factor(top_p$taxon)
+
+meta <- read_q2metadata("data/hf_meta_weights.tsv")
+rownames(meta) <- meta$SampleID
+
+# convert rarefied table to percent abundance
+rarefied_table <- read_qza("cd_new_results/rarefied_table.qza")$data
+ra_avg_mat <- rarefied_table
+
+for (row in 1:nrow(rarefied_table)){
+  for (col in 1:ncol(rarefied_table)){
+    total <- sum(rarefied_table[,col])
+    ra_avg_mat[row, col] <- rarefied_table[row, col]/total * 100
+  }
+}
+
+ra_mat <- t(ra_avg_mat)
+rare_df <- as.data.frame(ra_mat)
+
+# # Remove columns that sum in 0
+rare_df <- rare_df[colSums(abs(rare_df), na.rm = TRUE) > 0]
+
+rare <- transpose(rare_df)
+rownames(rare) <- colnames(rare_df)
+colnames(rare) <- rownames(rare_df)
+
+
+asvs <- rownames(rare)
+phyla <- vector(length=length(asvs))
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data %>% parse_taxonomy()
+taxonomy$Feature.ID <- rownames(taxonomy)
+
+i <- 1
+for (a in asvs){
+    phyla[i] <- taxonomy[rownames(taxonomy)==a,"Phylum"]
+    i <- i + 1
+}
+
+rare$Phylum <- phyla
+rare$Phylum <- as.factor(rare$Phylum)
+
+top_rare <- rare[rare$Phylum %in% top_p$taxon,]
+
+# reset levels of Phylum by changing it to character then factor again
+top_rare$Phylum <- as.character(top_rare$Phylum)
+top_rare$Phylum <- as.factor(top_rare$Phylum)
+
+# finally: sum the matching phyla together, then transpose
+top_sums <- aggregate(.~Phylum, data=top_rare, FUN=sum)
+
+t_sums <- dplyr::select(top_sums, -Phylum)
+t_sums <- t(t_sums)
+colnames(t_sums) <- top_sums$Phylum
+
+# add metadata
+mbac <- merge(t_sums, meta, 
+              by = 'row.names', all = TRUE)
+
+rownames(mbac) <- mbac$Row.names
+mbac <- select(mbac, -Row.names)
+
+
+mb_long <- pivot_longer(mbac,
+                        cols = 1:2,
+                        names_to = "Phylum",
+                        values_to = "Relative_Abundance")
+
+mb_long$Phylum <- as.factor(mb_long$Phylum)
+
+# express realtive abundance as percent of timepoint 1 (ctrl)
+mb_long$PerAbundance <- NA
+
+mb_long <- mb_long %>%
+  group_by(TreatDiet, Phylum) %>%
+  mutate(
+    ra_t1 = ifelse(Timepoint == "1", Relative_Abundance, NA_real_),
+    t1_avg = mean(ra_t1, na.rm = TRUE),
+    PerAbundance = Relative_Abundance / t1_avg * 100)
+    
+
+ggplot(mb_long, aes(x=Timepoint, y=PerAbundance, fill=TreatDiet)) +
+  geom_bar(color = "black",
+           stat="summary",
+           fun = mean,
+           position=position_dodge(.95))+
+  scale_fill_manual(values = c('#ADD4ED', '#016796', '#FCB5AF', '#A73325'))+
+  geom_errorbar(stat="summary",
+                fun = mean,
+                fun.min = function(X) mean(X),
+                fun.max = function(X) mean(X) + std.error(X),
+                position=position_dodge(.95)) +
+   # set labs
+  labs(title= "", 
+       y = "Relative Abundance\n (% of Timepoint 1)",
+       x = "Timepoint") +
+  # theme
+  theme_foundation(base_size = 14, base_family = "arial") +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(face = "bold", 
+                              size = 22, hjust = 0.5),
+    axis.line = element_line(linewidth = 1),
+    axis.ticks = element_line(linewidth = 1),
+    axis.title = element_text(face = "bold", size = rel(1)),
+    axis.title.y = element_text(angle = 90, vjust = 2, size=18),
+    axis.title.x = element_text(vjust = -0.2, size=18),
+    axis.text = element_text(size = 14),
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 16),
+    plot.background = element_blank(),
+    legend.title=element_text(size=16),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 15),
+    legend.text=element_text(size=16)) +
+  guides(fill=guide_legend(title="Group")) +
+  facet_wrap(~Phylum, scales = "free")
+
+#ggsave("figures/top_phylum_percentT1.png", width = 12, height = 8, units = "in")
+
+
+ggplot(mb_long, aes(x=Timepoint, y=Relative_Abundance, fill=TreatDiet)) +
+  geom_bar(color = "black",
+           stat="summary",
+           fun = mean,
+           position=position_dodge(.95))+
+  scale_fill_manual(values = c('#ADD4ED', '#016796', '#FCB5AF', '#A73325'))+
+  geom_errorbar(stat="summary",
+                fun = mean,
+                fun.min = function(X) mean(X),
+                fun.max = function(X) mean(X) + std.error(X),
+                position=position_dodge(.95)) +
+   # set labs
+  labs(title= "", 
+       y = "Relative Abundance",
+       x = "Timepoint") +
+  # theme
+  theme_foundation(base_size = 14, base_family = "arial") +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(face = "bold", 
+                              size = 22, hjust = 0.5),
+    axis.line = element_line(linewidth = 1),
+    axis.ticks = element_line(linewidth = 1),
+    axis.title = element_text(face = "bold", size = rel(1)),
+    axis.title.y = element_text(angle = 90, vjust = 2, size=18),
+    axis.title.x = element_text(vjust = -0.2, size=18),
+    axis.text = element_text(size = 14),
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 16),
+    plot.background = element_blank(),
+    legend.title=element_text(size=16),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 15),
+    legend.text=element_text(size=16)) +
+  guides(fill=guide_legend(title="Group")) +
+  facet_wrap(~Phylum, scales = "free")
+
+#ggsave("figures/top_phylum.png", width = 12, height = 8, units = "in")
+```
+
+### ANCOM SCNIC level
+SCNIC code completed using Mac terminal on Lowry lab Macbook.
+```{r}
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data
+tax.map <- taxonomy$Taxon
+names(tax.map) <- taxonomy$Feature.ID
+
+metadata <- read_q2metadata("data/hf_meta_weights.tsv")
+rownames(metadata) <- metadata$SampleID
+
+all_mods <- read_q2biom("modules_output/collapsed.biom")
+mods <- all_mods[369:422,] # only keep modules
+
+p.mods <- phyloseq(otu_table(mods, taxa_are_rows=T),
+                  sample_data(metadata))
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_mods.rds")) {
+  ancom.mods <- readRDS("ancom/ancom_mods.rds")
+} else {
+  ancom.mods <- ancombc2(data=p.mods, 
+                              fix_formula="Timepoint+Treatment+Diet+Weight_group", 
+                              rand_formula="(1|Mouse)",
+                              p_adj_method="fdr")
+  saveRDS(ancom.mods, "ancom/ancom_mods.rds")
+}
+
+
+# get results
+res <- ancom.mods$res
+```
+
+
+
+#### SCNIC: Interactions
+```{r}
+taxonomy <- read_qza("data/taxonomy-silva.qza")$data
+tax.map <- taxonomy$Taxon
+names(tax.map) <- taxonomy$Feature.ID
+
+metadata <- read_q2metadata("data/metadata_interactions.tsv")
+rownames(metadata) <- metadata$SampleID
+
+all_mods <- read_q2biom("modules_output/collapsed.biom")
+mods <- all_mods[369:422,] # only keep modules
+
+p.mods <- phyloseq(otu_table(mods, taxa_are_rows=T),
+                  sample_data(metadata))
+
+# Run ANCOM BC
+if (file.exists("ancom/ancom_mods_ix.rds")) {
+  ancom.mods <- readRDS("ancom/ancom_mods_ix.rds")
+} else {
+  ancom.mods <- ancombc2(data=p.mods, 
+                              fix_formula="Treatment + Diet + Timepoint + TreatDiet + TreatTime + DietTime + TreatDietTime", 
+                              rand_formula="(1|Mouse)",
+                              p_adj_method="fdr")
+  saveRDS(ancom.mods, "ancom/ancom_mods_ix.rds")
+}
+
+# get results
+res <- ancom.mods$res
+
+# make table
+res[order(res$`q_DietTime3`),] %>% 
+    select(taxon,
+           lfc_Timepoint3,
+           q_Timepoint3,
+           lfc_Diet1,
+           q_Diet1,
+           lfc_DietTime3,
+           q_DietTime3,
+           lfc_TreatDietTime3,
+           q_TreatDietTime3) %>%
+    DT::datatable()
+
+#write.csv(res, "ancom/scnic_ancom.csv", row.names=F)
+# modules 3, 4, 36, 0, 39, 50, 6, and 11 were significant for DietTime3
+# where LFC > |3| and q < .05
+```
+
+
+#### SCNIC: Sleuthing
+Run code above first, probably
+```{r}
+# Code by Sundar Dorai-Raj: reading asymmetrical tables
+## read in the file to determine the max number of columns
+x <- scan("modules_output/modules.txt", what = "", sep = "\n")
+x <- strsplit(x, "[ \t]+") # split string by white space
+max.col <- max(sapply(x, length))
+
+## option 1
+## specify col.names as ?read.table suggests
+cn <- paste("V", 1:max.col, sep = "")
+mod_table <- read.table("modules_output/modules.txt", 
+                        fill = TRUE, 
+                        col.names = cn)
+
+# barcodes to full name
+for (row in 1:nrow(mod_table)){
+  for (col in 1:ncol(mod_table)){
+    barcode <- mod_table[row, col]
+    ifelse(is.na(tax.map[barcode]) == FALSE,
+           mod_table[row, col] <- tax.map[barcode],
+           mod_table[row, col] <- mod_table[row, col])
+  }
+}
+
+#write.csv(mod_table, "data/modules_silva.csv", row.names = F)
+
+rownames(mod_table) <- mod_table$V1
+mod_table <- select(mod_table, -V1)
+  
+# make list of names
+name_list <- list()
+for (row in 1:nrow(mod_table)){
+  rname <- rownames(mod_table)[row]
+  col.list <- mod_table[row,]
+  emptycols <- colSums(col.list == "") == nrow(col.list)
+  col.list<- col.list[!emptycols]
+  col.list <- unlist(col.list, use.names = F)
+  cl2 <- paste(col.list, collapse = "; ")
+  name_list[row] <- cl2
+}
+
+name_df <- mod_table
+name_df$names <- name_list
+name_df <- select(name_df, names)
+
+# add names to results df
+rownames(res) <- res$taxon
+
+name_list <- list()
+for (row in 1:nrow(res)){
+  rname <- rownames(res[row,])
+  name_list[row] <- unlist(name_df[rname,])
+}
+
+res$names <- name_list
+
+```
+
+#### SCNIC: Plotting
+```{r}
+# top hits based on DietTime1, DietTime2, DietTime3
+metadata <- read_q2metadata("data/hf_meta_weights.tsv")
+rownames(metadata) <- metadata$SampleID
+
+res_top <- filter(res,
+                  q_DietTime1 < .05,
+                  q_DietTime2 < .05,
+                  q_DietTime3 < .05)
+
+res_top$taxon <- as.factor(res_top$taxon) 
+# res_top$taxon <- fct_recode(res_top$taxon,
+#                             "0" = "module_0",
+#                             "2" = "module_2",
+#                             "3" = "module_3",
+#                             "29" = "module_29",
+#                             "50" = "module_50",
+#                             "52" = "module_52")
+# 
+# res_top$taxon <- fct_relevel(res_top$taxon,
+#                              c("0", "2", "3",
+#                                "29", "50", "52"))
+
+
+mod_meta <- as.data.frame(t(mods))
+
+mod_meta <- merge(metadata, mod_meta,
+                  by = "row.names",
+                  all = TRUE)
+
+rownames(mod_meta) <- mod_meta$Row.names
+mod_meta <- mod_meta[,-1]
+
+mod_meta_l <- pivot_longer(mod_meta,
+                           cols = c(12:65),
+                           names_to = "Module",
+                           values_to = "Abundance")
+
+mod_meta_l$Module <- as.factor(mod_meta_l$Module)
+
+
+mod_meta_l <- mod_meta_l[mod_meta_l$Module %in% res_top$taxon,]
+mod_meta_l$Timepoint <- fct_recode(mod_meta_l$Timepoint,
+                                   "-78" = "1",
+                                   "-64" = "2",
+                                   "-29" = "3",
+                                   "-5" = "4")
+
+mod_meta_l$Module <- fct_recode(mod_meta_l$Module,
+                                "Module 0" = "module_0",
+                                "Module 2" = "module_2",
+                                "Module 3" = "module_3",
+                                "Module 29" = "module_29",
+                                "Module 50" = "module_50",
+                                "Module 52" = "module_52")
+
+mod_meta_l$Module <- fct_relevel(mod_meta_l$Module, 
+                               c("Module 0","Module 2",
+                                "Module 3", "Module 29",
+                                "Module 50", "Module 52"))
+
+ggplot(mod_meta_l, aes(x=Timepoint, y=Abundance, fill=TreatDiet)) +
+  geom_bar(color = "black",
+           stat="summary",
+           fun = mean,
+           position=position_dodge(.95))+
+  scale_fill_manual(values = c('#ADD4ED', '#016796', '#FCB5AF', '#A73325'))+
+  geom_errorbar(stat="summary",
+                fun = mean,
+                fun.min = function(X) mean(X),
+                fun.max = function(X) mean(X) + std.error(X),
+                position=position_dodge(.95)) +
+   # set labs
+  labs(title= "", 
+       y = "Relative Abundance",
+       x = "Day") +
+  # theme
+  theme_foundation(base_size = 14, base_family = "arial") +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(face = "bold", 
+                              size = 22, hjust = 0.5),
+    axis.line = element_line(linewidth = 1),
+    axis.ticks = element_line(linewidth = 1),
+    axis.title = element_text(face = "bold", size = rel(1)),
+    axis.title.y = element_text(angle = 90, vjust = 2, size=18),
+    axis.title.x = element_text(vjust = -0.2, size=18),
+    axis.text = element_text(size = 14),
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 16),
+    plot.background = element_blank(),
+    legend.title=element_text(size=16),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 15),
+    legend.text=element_text(size=16)) +
+  guides(fill=guide_legend(title="Group")) +
+  facet_wrap(~Module, scales = "free")
+
+#ggsave("figures/modules_diettime1-4.png", width = 10, height = 8, units = "in")
+# 
+# top_mods_taxa <- mod_table[rownames(mod_table) %in% rownames(res_top),]
+# 
+# #write.csv(top_mods_taxa, "data/module_bacteria.csv", row.names = TRUE)
+
+```
+
+
+
+## Volatility
+```{r}
+w_uni <- read_qza("cd_new_results/weighted_unifrac_distance_matrix.qza")$data
+u_uni <- read_qza("cd_new_results/unweighted_unifrac_distance_matrix.qza")$data
+
+metadata <- read_q2metadata("data/hf_meta_weights.tsv")
+rownames(metadata) <- metadata$SampleID
+metadata$TreatDiet <- paste(metadata$Treatment, metadata$Diet, sep = " - ")
+metadata$TreatDiet <- as.factor(metadata$TreatDiet)
+
+volatility <- matrix(ncol=6)
+
+for (id in 1:length(levels(metadata$Mouse))){
+    mouse <- levels(metadata$Mouse)[id]
+    temp_df <- metadata[metadata$Mouse==mouse,]
+    diet <- as.character(temp_df$Diet[[1]])
+    treat <- as.character(temp_df$Treatment[[1]])
+    # get distances
+    t1 <- rownames(temp_df)[1]
+    t2 <- rownames(temp_df)[2]
+    t3 <- rownames(temp_df)[3]
+    t4 <- rownames(temp_df)[4]
+    dist.w12 <- dist_get(w_uni, t1, t2)
+    dist.u12 <- dist_get(u_uni, t1, t2)
+    
+    dist.w13 <- dist_get(w_uni, t1, t3)
+    dist.u13 <- dist_get(u_uni, t1, t3)
+    
+    dist.w14 <- dist_get(w_uni, t1, t4)
+    dist.u14 <- dist_get(u_uni, t1, t4)
+    
+    volatility <- rbind(volatility,
+                        c(mouse, "1v2", diet, treat, dist.w12, dist.u12))
+    
+    volatility <- rbind(volatility,
+                        c(mouse, "1v3", diet, treat, dist.w13, dist.u13))
+    
+    volatility <- rbind(volatility,
+                        c(mouse, "1v4", diet, treat, dist.w14, dist.u14))
+}
+
+# for (id in 1:length(levels(metadata$Mouse))){
+#     mouse <- levels(metadata$Mouse)[id]
+#     temp_df <- metadata[metadata$Mouse==mouse,]
+#     diet <- as.character(temp_df$Diet[[1]])
+#     treat <- as.character(temp_df$Treatment[[1]])
+#     # get distances
+#     t1 <- rownames(temp_df)[1]
+#     t2 <- rownames(temp_df)[2]
+#     t3 <- rownames(temp_df)[3]
+#     t4 <- rownames(temp_df)[4]
+#     dist.w12 <- dist_get(w_uni, t1, t2)
+#     dist.u12 <- dist_get(u_uni, t1, t2)
+#     
+#     dist.w23 <- dist_get(w_uni, t2, t3)
+#     dist.u23 <- dist_get(u_uni, t2, t3)
+#     
+#     dist.w34 <- dist_get(w_uni, t3, t4)
+#     dist.u34 <- dist_get(u_uni, t3, t4)
+#     
+#     volatility <- rbind(volatility,
+#                         c(mouse, "1-2", diet, treat, dist.w12, dist.u12))
+#     
+#     volatility <- rbind(volatility,
+#                         c(mouse, "2-3", diet, treat, dist.w23, dist.u23))
+#     
+#     volatility <- rbind(volatility,
+#                         c(mouse, "3-4", diet, treat, dist.w34, dist.u34))
+# }
+
+volatility <- volatility[2:nrow(volatility),]
+volatility <- as.data.frame(volatility)
+
+colnames(volatility) <- c("Mouse",
+                          "Time_Compare",
+                          "Diet",
+                          "Treatment",
+                          "W_Uni_Dist", 
+                          "U_Uni_Dist")
+
+volatility$W_Uni_Dist <- as.numeric(volatility$W_Uni_Dist)
+volatility$U_Uni_Dist <- as.numeric(volatility$U_Uni_Dist)
+volatility$Time_Compare <- as.factor(volatility$Time_Compare)
+
+volatility$Diet <- as.factor(volatility$Diet)
+volatility$Treatment <- as.factor(volatility$Treatment)
+volatility$Mouse <- as.factor(volatility$Mouse)
+volatility$TreatDiet <- paste(volatility$Treatment,
+                              volatility$Diet, sep = " - ")
+volatility$TreatDiet <- as.factor(volatility$TreatDiet)
+
+# model volatility
+mw <- lme(W_Uni_Dist ~ Time_Compare * Diet * Treatment,
+         random = ~ Time_Compare | Mouse,
+         data=volatility)
+
+summary(mw)
+
+mu <- lme(U_Uni_Dist ~ Time_Compare * Diet * Treatment,
+         random = ~ Time_Compare | Mouse,
+         data=volatility)
+
+summary(mu)
+
+# for error bars
+v_stats <- aggregate(W_Uni_Dist ~ TreatDiet + Time_Compare, volatility, mean)
+v_SEM <- aggregate(W_Uni_Dist ~ TreatDiet + Time_Compare, volatility, FUN = sem)
+v_stats$SEM <- v_SEM$W_Uni_Dist
+
+ggplot(data=v_stats,
+       mapping=aes(x=Time_Compare, y=W_Uni_Dist,
+                   group=TreatDiet, color = TreatDiet)) +
+  geom_line(size = 1.5) +
+  geom_errorbar(aes(ymin=W_Uni_Dist-SEM, ymax=W_Uni_Dist+SEM), width=.5,
+                 position=position_dodge(0.05)) +
+
+ # stat_smooth() +
+  ylab("Weighted UniFrac distance from previous sample") +
+  xlab("Timepoints: Comparisons") +
+  ylim(0,1) +
+  scale_color_manual(values = c('#ADD4ED', '#016796', '#FCB5AF', '#A73325')) +
+ theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    text = element_text(colour = "black"),
+    plot.title = element_text(face = "bold", 
+                              size = 20, hjust = 0.5),
+    axis.line = element_line(colour="black", size = 1),
+    axis.ticks = element_line(colour="black", size = 1),
+    axis.title = element_text(face = "bold", size = rel(1)),
+    axis.title.y = element_text(angle = 90, vjust = 2, size=20),
+    axis.title.x = element_text(vjust = -0.2, size = 20),
+    axis.text = element_text(size = 16),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    plot.background = element_blank(),
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=16),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=16),
+    legend.key=element_blank()) +
+  guides(color = guide_legend(title="Group"))
+#ggsave("figures/volatility_w_uni.png", width = 11, height = 8, units = "in")
+
+
+vu_stats <- aggregate(U_Uni_Dist ~ TreatDiet + Time_Compare, volatility, mean)
+vu_SEM <- aggregate(U_Uni_Dist ~ TreatDiet + Time_Compare, volatility, FUN = sem)
+vu_stats$SEM <- vu_SEM$U_Uni_Dist
+
+ggplot(data=vu_stats,
+       mapping=aes(x=Time_Compare, y=U_Uni_Dist,
+                   group=TreatDiet, color = TreatDiet)) +
+  geom_line(size = 1.5) +
+  geom_errorbar(aes(ymin=U_Uni_Dist-SEM, ymax=U_Uni_Dist+SEM), width=.5,
+                 position=position_dodge(0.05)) +
+
+ # stat_smooth() +
+  ylab("Unweighted UniFrac distance from previous sample") +
+  xlab("Timepoints: Comparisons") +
+  ylim(0,.5) +
+  scale_color_manual(values = c('#ADD4ED', '#016796', '#FCB5AF', '#A73325')) +
+ theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    text = element_text(colour = "black"),
+    plot.title = element_text(face = "bold", 
+                              size = 20, hjust = 0.5),
+    axis.line = element_line(colour="black", size = 1),
+    axis.ticks = element_line(colour="black", size = 1),
+    axis.title = element_text(face = "bold", size = rel(1)),
+    axis.title.y = element_text(angle = 90, vjust = 2, size=20),
+    axis.title.x = element_text(vjust = -0.2, size = 20),
+    axis.text = element_text(size = 16),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    plot.background = element_blank(),
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=16),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=16),
+    legend.key=element_blank()) +
+  guides(color = guide_legend(title="Group"))
+#ggsave("figures/volatility_un_uni.png", width = 11, height = 8, units = "in")
+
+#write.csv(volatility, "data/volatility2.csv", row.names=FALSE)
+```
+
+
+# Taxa barplot by John Sterrett
+## Load data
+```{r}
+# reorder metadata before it's read into philoseq
+# since IDs were out of order
+# RUN ONLY ONCE
+
+# meta <- read_q2metadata("data/hf_meta_weights.tsv")
+# m_csv <- read_csv("data/hf_meta_weights.csv")
+# 
+# meta$Mouse <- as.numeric(as.character(meta$Mouse))
+# 
+# meta2 <- meta[order(meta$Mouse),]
+# meta2 <- rbind(m_csv[1,], meta2)
+# 
+#write.table(meta2, file = "data/hf_meta_weights.tsv", row.names=FALSE, sep="\t", quote = F)
+# write.csv(meta2, "data/hf_meta_weights.csv", row.names = FALSE)
+
+# load pseq
+pseq <- qiime2R::qza_to_phyloseq(feature="data/hf_table.qza",
+                                 taxonomy="data/taxonomy-silva.qza",
+                                 metadata="data/hf_meta_weights.tsv")
+
+
+
+taxonomy.table <- pseq %>% tax_table() %>% as.data.frame()
+```
+
+## Microshades {.tabset}
+```{r}
+# customized for our metadata
+
+my_plot_microshades <- function(mdf_group,
+                                cdf,
+                                group_label = "Phylum Genus",
+                                x = "Sample",
+                                y = "Abundance")
+{
+  if (class(mdf_group) != "data.frame")
+  {
+    stop("mdf_group argument must be a data frame")
+  }
+
+  if(any(is.na(cdf$hex) | is.na(cdf$group)))
+  {
+    stop("cdf does not contain complete color information - missing hex or group info")
+  }
+
+  plot <- mdf_group %>%
+    
+    # SPECIFIC TO HFD PROJECT
+    mutate(Sample = fct_reorder(Sample, as.numeric(as.character(Mouse)))) %>%
+    
+    ggplot(aes_string(x = x, y = y), fill = group_label) +
+    scale_fill_manual(name = group_label,
+                      values = cdf$hex,
+                      breaks = cdf$group) +
+    scale_colour_manual(name = group_label,
+                        values = cdf$hex,
+                        breaks = cdf$group) +
+    geom_bar(aes(color=group, fill=group), stat="identity", position="stack") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  plot
+}
+
+
+make_microshades_phylum <- function(pseq, subgroup){
+    # prep the microshades colors
+    mdf_prep <- prep_mdf(pseq, subgroup_level=subgroup)
+    # sort the phylum names
+    phylum_table <- tax_glom(pseq, taxrank="Phylum", ) %>% otu_table()
+    phyla.otunames <- rownames(phylum_table)
+    
+    phylums <- taxonomy.table[phyla.otunames,"Phylum"]
+    
+    sorted_phylums <- phylums[order(rowSums(phylum_table), decreasing=T)]
+    # create the colors object
+    color_objs_GP <- create_color_dfs(mdf_prep,
+                                      selected_groups=sorted_phylums[5:1], 
+                                      cvd = TRUE, subgroup_level=subgroup)
+    # Extract
+    mdf_GP <- color_objs_GP$mdf
+    cdf_GP <- color_objs_GP$cdf
+    
+    # create a custom legend
+    GP_legend <-custom_legend(mdf_GP, cdf_GP, 
+                              legend_key_size=unit(0.4, "cm"),
+                              legend_text_size=10, subgroup_level=subgroup)
+    
+    # plot
+    plot <- my_plot_microshades(mdf_GP, cdf_GP)
+    plot_1 <- plot + scale_y_continuous(labels = scales::percent, 
+                                        expand = expansion(0)) +
+      
+      theme(legend.position = "none")  +
+      #theme(axis.text.x = element_blank()) +
+      facet_grid(~Timepoint + TreatDiet, scales="free_x", space="free_x"
+                 )
+    
+    multi <- plot_grid(plot_1, GP_legend,  rel_widths = c(1, .25))
+    multi
+}
+
+
+
+```
+
+## Phylum -> Family
+```{r, warning=F, echo=F, fig.height=8}
+
+#df <- read_csv("data/hf_meta_weights.csv")
+#write.table(df, file='data/hf_meta_weights.tsv', quote=FALSE, sep='\t', col.names = T,
+#            row.names = F)
+
+subgroup <- "Family"
+
+make_microshades_phylum(pseq, "Family")
+#ggsave(file="figures/taxa_barplot_timetreatdiet.png", width=20, height=8)
+```
+
+
+# PhILR
+Package By Justin Silverman: https://bioconductor.org/packages/release/bioc/vignettes/philr/inst/doc/philr-intro.html
+PhILR is short for “Phylogenetic Isometric Log-Ratio Transform.” This determines the parts of a phylogenetic tree that relate to your outcome, AKA ”balance tree analysis.
+
+Code help: John Sterrett
+https://github.com/sterrettJD/Phadtare-IBS/blob/main/PhILR.Rmd
+
+```{r}
+pseq <- qiime2R::qza_to_phyloseq(features="data/hf_weights_table.qza",
+                         taxonomy="data/taxonomy-silva.qza",
+                         tree="data/insertion-tree.qza",
+                         metadata="data/metadata_interactions.tsv")
+
+# Filter low-abundance ASVs
+orig.asvs <- nrow(otu_table(pseq))
+# keep only the ASVs found in more than 10% of samples
+
+pseq.filt <- filter_taxa(pseq, 
+                         function(x) sum(x>0) > (0.1*length(x)), 
+                         prune=T
+                         )
+presence.filt.remaining <- nrow(otu_table(pseq.filt))
+
+# keep only the ASVs that we have at least 100 reads of
+pseq.filt <- filter_taxa(pseq.filt, 
+                         function(x) sum(x) > 100, 
+                         prune=T
+                         )
+phylo.filt.final.remaining <- nrow(otu_table(pseq.filt))
+
+# filter taxa that aren't very variable
+pseq.filt <- filter_taxa(pseq.filt, 
+                         function(x) sd(x)/mean(x) > 3.0, 
+                         prune=T
+                         )
+
+phylo.filt.final.remaining.variable <- nrow(otu_table(pseq.filt))
+
+cat(paste("Original features:", orig.asvs,
+            "\nAfter first filtering step:", presence.filt.remaining,
+            "\nAfter second filtering step:", phylo.filt.final.remaining,
+            "\nAfter third (variability) filtering step:", phylo.filt.final.remaining.variable))
+
+pseq.filt # check n features
+
+# add pseudocount
+temp.tab <- otu_table(pseq.filt) %>% as.data.frame()
+temp.tab[temp.tab==0] <- 1
+otu_table(pseq.filt) <- otu_table(temp.tab, taxa_are_rows=T)
+
+# check there are no zeros
+head(otu_table(pseq.filt))
+
+# Process tree
+if(ape::is.rooted(phy_tree(pseq.filt)) == T){
+    "Tree is rooted."
+} else {
+    "TREE IS NOT ROOTED"
+}
+
+if(ape::is.binary(phy_tree(pseq.filt)) == T){
+    "Tree is binary."
+} else {
+    "TREE IS NOT BINARY"
+}
+
+# rename nodes to be "n1, n2, ..."
+tree <- ape::makeNodeLabel(phy_tree(pseq.filt), method="number", prefix='n')
+phy_tree(pseq.filt) <- tree
+
+# name a balance to check
+name.balance(tree, tax_table(pseq.filt), 'n1')
+
+# create philr object
+philr.dat <- philr(otu_table(pseq.filt) %>% t(), # have to transpose the otu table
+                  phy_tree(pseq.filt),
+                  part.weights='enorm.x.gm.counts', 
+                  ilr.weights='blw.sqrt')
+
+```
+
+
+
+## LASSO
+Run code above first.
+Assess balances of PhILR results that associate with the outcome of interest.
+New packages: glmnet, ggtree
+
+```{r}
+metadata <- sample_data(pseq.filt) %>% as.data.frame()
+metadata$Timepoint <- as.double(metadata$Timepoint)
+
+glmmod <- glmnet(x=philr.dat,
+                 y=metadata$Timepoint,
+                 alpha=1)
+
+# s would need to be switched to 3000 if y is large
+# can adjust s until there are 3-10 top results
+top.coords <- as.matrix(coef(glmmod, s=1/5))
+top.coords <- top.coords[2:length(top.coords),]
+
+top.coords <- top.coords[order(abs(top.coords), decreasing=T)]
+top.coords <- top.coords[top.coords != 0]
+top.coords.values <- top.coords
+top.coords <- names(top.coords)
+
+
+# get summary stats for selected features regression
+m.formula <- paste(top.coords, collapse=" + ")
+m.formula <- paste0("metadata$Timepoint ~ ", m.formula)
+m <- lm(as.formula(m.formula),
+        data=as.data.frame(philr.dat))
+summary(m)
+
+# p <- summary(m)$coefficients[,4]
+# nodes <- rownames(summary(m)$coefficients)
+# np_df <- data.frame("nodes" = nodes,
+#                     "p.value" = p)
+# np_top <- filter(np_df, p < .05)
+
+tc.names <- sapply(top.coords, function(x) name.balance(phy_tree(pseq.filt), tax_table(pseq.filt), x))
+tc.names
+
+```
+
+
+## Tree
+```{r}
+tc.nn <- name.to.nn(phy_tree(pseq.filt), top.coords)
+
+tc.colors <- c('#fb9a99',  '#b2df8a', '#33a02c', '#1f78b4', '#a6cee3')
+
+  
+  # geom_cladelabel(node = as.numeric(gsub(".*?([0-9]+).*", 
+  #                                        "\\1", 
+  #                                        top.coords[1])) ,
+  #                 label = top.coords[1],
+  #                 color = "black",
+  #                 offset = 0,
+  #                 align = TRUE)
+
+
+p <- ggtree(tree) +
+    geom_balance(node=tc.nn[1], fill=tc.colors[1], alpha=0.6) +
+    geom_balance(node=tc.nn[2], fill=tc.colors[2], alpha=0.6) +
+    geom_balance(node=tc.nn[3], fill=tc.colors[3], alpha=0.6) +
+    geom_balance(node=tc.nn[4], fill=tc.colors[4], alpha=0.6) +
+    geom_balance(node=tc.nn[5], fill=tc.colors[5], alpha=0.6) 
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[1],
+                 p=p,
+                 labels=paste(rep(top.coords[1],2), c("num", "denom")),
+                 offset.text=0.01,
+                 bar=FALSE,
+                 hjust=0,
+                 size=3) +
+  scale_x_continuous(expand = expansion(mult = 0.3))
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[2], 
+                 p=p, 
+                 labels=paste(rep(top.coords[2],2), c("num", "denom")),
+                 offset.text=0.01, bar=FALSE,
+                 hjust=0,
+                 vjust=1.7,
+                 size=3)
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[3], 
+                 p=p,
+                 labels=paste(rep(top.coords[3],2), c("num", "denom")),
+                 offset.text=.01, bar=FALSE,
+                 hjust=0,
+                 size=3)
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[4], 
+                 p=p, 
+                 #labels=paste(rep(top.coords[4],2), c("num", "denom")),
+                 labels=c("","n37"),
+                 offset.text=0.01, bar=FALSE,
+                 hjust=0,
+                 vjust=1,
+                 size=3)
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[5], 
+                 p=p, 
+                 labels=paste(rep(top.coords[5],2), c("num", "denom")),
+                 offset.text=.01, bar=FALSE,
+                 hjust=0,
+                 size=3)
+
+
+p
+
+
+```
+
+## Violin plots
+```{r, fig.height=10, fig.width=14}
+philr.long <- convert_to_long(philr.dat, 
+                              labels=metadata$Timepoint) %>%
+  filter(coord %in% top.coords)
+
+philr.long$coord <- as.factor(philr.long$coord) 
+philr.long$labels <- as.factor(philr.long$labels)
+
+philr.long$labels <- fct_recode(philr.long$labels,
+                                   "-78" = "1",
+                                   "-64" = "2",
+                                   "-29" = "3",
+                                   "-5" = "4")
+philr.long$sample <- as.factor(philr.long$sample)
+
+metadata$ID <- rownames(metadata)
+philr.long$mouse <- metadata$Mouse[match(philr.long$sample, metadata$ID)]
+
+meta2 <- read_q2metadata("data/hf_meta_weights.tsv")
+philr.long$group <- meta2$TreatDiet[match(philr.long$mouse,
+                                          metadata$Mouse)]
+
+scatter.labels <- paste(names(tc.names), tc.names, sep=": ")
+names(scatter.labels) <- names(tc.names)
+
+p2 <- ggplot(philr.long, aes(x=labels, y=value, fill=coord)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+  scale_fill_manual(guide="none", values = c('#fb9a99',  '#b2df8a', '#33a02c', '#1f78b4', '#a6cee3')) +
+  facet_wrap(.~coord,
+             scales='free', ncol=1,
+             labeller=labeller(coord=scatter.labels)) +
+  labs(x = 'Day', y = 'Balance Value') +
+ # scale_x_continuous(labels = scales::comma) +
+  theme_bw()
+
+
+#philr.long$labels <- as.numeric(as.character(philr.long$labels))
+
+# unsure how best to display data, practice graph below
+ggplot(philr.long, aes(x=labels, y=value, color=coord, group=group)) +
+  geom_line() +
+  scale_color_manual(guide="none", values = c('#fb9a99',  '#b2df8a', '#33a02c', '#1f78b4', '#a6cee3')) +
+  facet_wrap(.~coord,
+             scales='free', ncol=1,
+             labeller=labeller(coord=scatter.labels)) +
+  labs(x = 'Day', y = 'Balance Value') +
+ # scale_x_continuous(labels = scales::comma) +
+  theme_bw()
+
+
+ggarrange(p, p2,
+          labels = c("A", "B"),
+          font.label = list(size = 18),
+          nrow = 1, ncol = 2)
+
+
+#ggsave("figures/timepoint_PhILR.svg", height=10, width=14)
+```
+
+## Separate Timepoints
+#### PhILR
+
+```{r}
+pseq <- qiime2R::qza_to_phyloseq(features="data/hf_weights_table.qza",
+                         taxonomy="data/taxonomy-silva.qza",
+                         tree="data/insertion-tree.qza",
+                         metadata="data/hf_meta_weights.tsv")
+
+ps1 <- subset_samples(pseq, Timepoint == "1")
+ps2 <- subset_samples(pseq, Timepoint == "2")
+ps3 <- subset_samples(pseq, Timepoint == "3")
+ps4 <- subset_samples(pseq, Timepoint == "4")
+
+# Filter low-abundance ASVs
+orig.asvs1 <- nrow(otu_table(ps1))
+orig.asvs2 <- nrow(otu_table(ps2))
+orig.asvs3 <- nrow(otu_table(ps3))
+orig.asvs4 <- nrow(otu_table(ps4))
+
+
+# keep only the ASVs found in more than 10% of samples
+pseq.filt1 <- filter_taxa(ps1, 
+                         function(x) sum(x>0) > (0.1*length(x)), 
+                         prune=T)
+pseq.filt2 <- filter_taxa(ps2, 
+                         function(x) sum(x>0) > (0.1*length(x)), 
+                         prune=T)
+pseq.filt3 <- filter_taxa(ps3, 
+                         function(x) sum(x>0) > (0.1*length(x)), 
+                         prune=T)
+pseq.filt4 <- filter_taxa(ps4, 
+                         function(x) sum(x>0) > (0.1*length(x)), 
+                         prune=T)
+
+# presence.filt.remaining
+pfr1 <- nrow(otu_table(pseq.filt1))
+pfr2 <- nrow(otu_table(pseq.filt2))
+pfr3 <- nrow(otu_table(pseq.filt3))
+pfr4 <- nrow(otu_table(pseq.filt4))
+
+# keep only the ASVs that we have at least 100 reads of
+pseq.filt1 <- filter_taxa(pseq.filt1, 
+                          function(x) sum(x) > 100, 
+                          prune=T)
+pseq.filt2 <- filter_taxa(pseq.filt2, 
+                          function(x) sum(x) > 100, 
+                          prune=T)
+pseq.filt3 <- filter_taxa(pseq.filt3, 
+                          function(x) sum(x) > 100, 
+                          prune=T)
+pseq.filt4 <- filter_taxa(pseq.filt4, 
+                          function(x) sum(x) > 100, 
+                          prune=T)
+
+# phylo.filt.final.remaining
+pfinal1 <- nrow(otu_table(pseq.filt1))
+pfinal2 <- nrow(otu_table(pseq.filt2))
+pfinal3 <- nrow(otu_table(pseq.filt3))
+pfinal4 <- nrow(otu_table(pseq.filt4))
+
+# filter taxa that aren't very variable
+pseq.filt1 <- filter_taxa(pseq.filt1, 
+                         function(x) sd(x)/mean(x) > 3.0, 
+                         prune=T)
+pseq.filt2 <- filter_taxa(pseq.filt2, 
+                         function(x) sd(x)/mean(x) > 3.0, 
+                         prune=T)
+pseq.filt3 <- filter_taxa(pseq.filt3, 
+                         function(x) sd(x)/mean(x) > 3.0, 
+                         prune=T)
+pseq.filt4 <- filter_taxa(pseq.filt4, 
+                         function(x) sd(x)/mean(x) > 3.0, 
+                         prune=T)
+
+# phylo.filt.final.remaining.variable
+pvari1 <- nrow(otu_table(pseq.filt1))
+pvari2 <- nrow(otu_table(pseq.filt2))
+pvari3 <- nrow(otu_table(pseq.filt3))
+pvari4 <- nrow(otu_table(pseq.filt4))
+
+cat(paste("Original features:", orig.asvs1,
+            "\nAfter first filtering step:", pfr1,
+            "\nAfter second filtering step:", pfinal1,
+            "\nAfter third (variability) filtering step:", pvari1))
+cat(paste("Original features:", orig.asvs2,
+            "\nAfter first filtering step:", pfr2,
+            "\nAfter second filtering step:", pfinal2,
+            "\nAfter third (variability) filtering step:", pvari2))
+cat(paste("Original features:", orig.asvs3,
+            "\nAfter first filtering step:", pfr3,
+            "\nAfter second filtering step:", pfinal3,
+            "\nAfter third (variability) filtering step:", pvari3))
+cat(paste("Original features:", orig.asvs4,
+            "\nAfter first filtering step:", pfr4,
+            "\nAfter second filtering step:", pfinal4,
+            "\nAfter third (variability) filtering step:", pvari4))
+
+# check n features
+pseq.filt1
+pseq.filt2
+pseq.filt3 
+pseq.filt4 
+
+# add pseudocount
+temp.tab <- otu_table(pseq.filt1) %>% as.data.frame()
+temp.tab[temp.tab==0] <- 1
+otu_table(pseq.filt1) <- otu_table(temp.tab, taxa_are_rows=T)
+
+temp.tab <- otu_table(pseq.filt2) %>% as.data.frame()
+temp.tab[temp.tab==0] <- 1
+otu_table(pseq.filt2) <- otu_table(temp.tab, taxa_are_rows=T)
+
+temp.tab <- otu_table(pseq.filt3) %>% as.data.frame()
+temp.tab[temp.tab==0] <- 1
+otu_table(pseq.filt3) <- otu_table(temp.tab, taxa_are_rows=T)
+
+temp.tab <- otu_table(pseq.filt4) %>% as.data.frame()
+temp.tab[temp.tab==0] <- 1
+otu_table(pseq.filt4) <- otu_table(temp.tab, taxa_are_rows=T)
+
+
+# check there are no zeros
+head(otu_table(pseq.filt1))
+head(otu_table(pseq.filt2))
+head(otu_table(pseq.filt3))
+head(otu_table(pseq.filt4))
+
+# Process tree (change for each)
+if(ape::is.rooted(phy_tree(pseq.filt4)) == T){
+    "Tree is rooted."
+} else {
+    "TREE IS NOT ROOTED"
+}
+
+if(ape::is.binary(phy_tree(pseq.filt4)) == T){
+    "Tree is binary."
+} else {
+    "TREE IS NOT BINARY"
+}
+
+# rename nodes to be "n1, n2, ..."
+tree1 <- ape::makeNodeLabel(phy_tree(pseq.filt1), method="number", prefix='n')
+phy_tree(pseq.filt1) <- tree1
+
+tree2 <- ape::makeNodeLabel(phy_tree(pseq.filt2), method="number", prefix='n')
+phy_tree(pseq.filt2) <- tree2
+
+tree3 <- ape::makeNodeLabel(phy_tree(pseq.filt3), method="number", prefix='n')
+phy_tree(pseq.filt3) <- tree3
+
+tree4 <- ape::makeNodeLabel(phy_tree(pseq.filt4), method="number", prefix='n')
+phy_tree(pseq.filt4) <- tree4
+
+
+# name a balance to check
+name.balance(tree1, tax_table(pseq.filt1), 'n1')
+name.balance(tree2, tax_table(pseq.filt2), 'n1')
+name.balance(tree3, tax_table(pseq.filt3), 'n1')
+name.balance(tree4, tax_table(pseq.filt4), 'n1')
+
+# create philr object
+philr.dat1 <- philr(otu_table(pseq.filt1) %>% t(), # have to transpose the otu table
+                  phy_tree(pseq.filt1),
+                  part.weights='enorm.x.gm.counts', 
+                  ilr.weights='blw.sqrt')
+
+philr.dat2 <- philr(otu_table(pseq.filt2) %>% t(), # have to transpose the otu table
+                  phy_tree(pseq.filt2),
+                  part.weights='enorm.x.gm.counts', 
+                  ilr.weights='blw.sqrt')
+
+philr.dat3 <- philr(otu_table(pseq.filt3) %>% t(), # have to transpose the otu table
+                  phy_tree(pseq.filt3),
+                  part.weights='enorm.x.gm.counts', 
+                  ilr.weights='blw.sqrt')
+
+philr.dat4 <- philr(otu_table(pseq.filt4) %>% t(), # have to transpose the otu table
+                  phy_tree(pseq.filt4),
+                  part.weights='enorm.x.gm.counts', 
+                  ilr.weights='blw.sqrt')
+
+```
+
+### LASSO
+Run code above first.
+Assess balances of PhILR results that associate with the outcome of interest.
+New packages: glmnet, ggtree
+
+```{r}
+metadata <- sample_data(pseq.filt1) %>% as.data.frame()
+metadata$Diet <- as.double(metadata$Diet)
+
+glmmod1 <- glmnet(x=philr.dat1,
+                 y=metadata$Diet,
+                 alpha=1)
+
+glmmod2 <- glmnet(x=philr.dat2,
+                 y=metadata$Diet,
+                 alpha=1)
+
+glmmod3 <- glmnet(x=philr.dat3,
+                 y=metadata$Diet,
+                 alpha=1)
+
+glmmod4 <- glmnet(x=philr.dat4,
+                 y=metadata$Diet,
+                 alpha=1)
+
+# s would need to be switched to 3000 if y is large
+# can adjust s until there are 3-10 top results
+top.coords1 <- as.matrix(coef(glmmod1, s=1/6))
+top.coords1 <- top.coords1[2:length(top.coords1),]
+top.coords1 <- top.coords1[order(abs(top.coords1), decreasing=T)]
+top.coords1 <- top.coords1[top.coords1 != 0]
+top.coords.values1 <- top.coords1
+top.coords1 <- names(top.coords1)
+
+top.coords2 <- as.matrix(coef(glmmod2, s=1/6))
+top.coords2 <- top.coords2[2:length(top.coords2),]
+top.coords2 <- top.coords2[order(abs(top.coords2), decreasing=T)]
+top.coords2 <- top.coords2[top.coords2 != 0]
+top.coords.values2 <- top.coords2
+top.coords2 <- names(top.coords2)
+
+top.coords3 <- as.matrix(coef(glmmod3, s=1/6))
+top.coords3 <- top.coords3[2:length(top.coords3),]
+top.coords3 <- top.coords3[order(abs(top.coords3), decreasing=T)]
+top.coords3 <- top.coords3[top.coords3 != 0]
+top.coords.values3 <- top.coords3
+top.coords3 <- names(top.coords3)
+
+top.coords4 <- as.matrix(coef(glmmod4, s=1/6))
+top.coords4 <- top.coords4[2:length(top.coords4),]
+top.coords4 <- top.coords4[order(abs(top.coords4), decreasing=T)]
+top.coords4 <- top.coords4[top.coords4 != 0]
+top.coords.values4 <- top.coords4
+top.coords4 <- names(top.coords4)
+
+# get summary stats for selected features regression
+# m.formula1 <- paste(top.coords1, collapse=" + ")
+# m.formula1 <- paste0("metadata$Diet ~ ", m.formula1)
+# m1 <- lm(as.formula(m.formula1),
+#         data=as.data.frame(philr.dat1))
+# summary(m1)
+
+m.formula2 <- paste(top.coords2, collapse=" + ")
+m.formula2 <- paste0("metadata$Diet ~ ", m.formula2)
+m2 <- lm(as.formula(m.formula2),
+        data=as.data.frame(philr.dat2))
+summary(m2)
+
+m.formula3 <- paste(top.coords3, collapse=" + ")
+m.formula3 <- paste0("metadata$Diet ~ ", m.formula3)
+m3 <- lm(as.formula(m.formula3),
+        data=as.data.frame(philr.dat3))
+summary(m3)
+
+m.formula4 <- paste(top.coords4, collapse=" + ")
+m.formula4 <- paste0("metadata$Diet ~ ", m.formula4)
+m4 <- lm(as.formula(m.formula4),
+        data=as.data.frame(philr.dat4))
+summary(m4)
+
+# p <- summary(m)$coefficients[,4]
+# nodes <- rownames(summary(m)$coefficients)
+# np_df <- data.frame("nodes" = nodes,
+#                     "p.value" = p)
+# np_top <- filter(np_df, p < .05)
+
+tc.names1 <- sapply(top.coords1, function(x) name.balance(phy_tree(pseq.filt1), tax_table(pseq.filt1), x))
+tc.names1
+
+tc.names2 <- sapply(top.coords2, function(x) name.balance(phy_tree(pseq.filt2), tax_table(pseq.filt2), x))
+tc.names2
+
+tc.names3 <- sapply(top.coords3, function(x) name.balance(phy_tree(pseq.filt3), tax_table(pseq.filt3), x))
+tc.names3
+
+tc.names4 <- sapply(top.coords4, function(x) name.balance(phy_tree(pseq.filt4), tax_table(pseq.filt4), x))
+tc.names4
+
+```
+
+
+#### Detailed names
+There are nodes such as n3 in timepoint 2 where it is Family_Lachnospiraceae/Family_Lachnospiraceae, which is not detailed enough. This code will rename those nodes to have more detailed names.
+```{r}
+# Tree 2
+# view the names of what will be used in the violin plots
+tc.names2
+
+# Tree 2, n3
+# get the numerator (up votes) and denominator (down votes) taxa
+tree2_n3 <- name.balance(phy_tree(pseq.filt2),
+                             tax_table(pseq.filt2),
+                             'n3',
+                             return.votes=c("up", "down"))
+# the low resolution was family, so we'll look at genus next
+level <- "Genus"
+up_n <- tree2_n3[[c('up.votes', level)]]
+num_n <- names(up_n[up_n == max(up_n)])
+down_n <- tree2_n3[[c('down.votes', level)]]
+denom_n <- names(down_n[down_n == max(down_n)])
+# make a new name then replace old name by hand
+newname_n3 <- paste(level, "_", num_n, 
+                    "/", 
+                    level, "_", denom_n, 
+                    sep="")
+tc.names2["n3"] <- newname_n3
+
+# Tree 2, n22
+tree2_n22 <-  name.balance(phy_tree(pseq.filt2),
+                             tax_table(pseq.filt2),
+                             'n22',
+                             return.votes=c("up", "down"))
+up_n <- tree2_n22[[c('up.votes', 'Genus')]]
+num_n <- names(up_n[up_n == max(up_n)])
+down_n <- tree2_n22[[c('down.votes', 'Family')]]
+denom_n <- names(down_n[down_n == max(down_n)])
+newname_n22 <- paste("Genus", "_", num_n, 
+                    "/", 
+                    "Family", "_", denom_n, 
+                    sep="")
+tc.names2["n22"] <- newname_n22
+
+# Tree 3
+tc.names3
+# Tree 3, n5
+# family/family was low res
+tree3_n5 <- name.balance(phy_tree(pseq.filt2),
+                             tax_table(pseq.filt2),
+                             'n5',
+                             return.votes=c("up", "down"))
+up_n <- tree3_n5[[c('up.votes', 'Genus')]]
+up_n
+num_n <- names(up_n[up_n == max(up_n)])
+# for denom, genus had tied votes, so using family
+down_n <- tree3_n5[[c('down.votes', 'Family')]]
+down_n
+denom_n <- names(down_n[down_n == max(down_n)])
+newname_n5 <- paste("Genus", "_", num_n, 
+                    "/", 
+                    "Family", "_", denom_n, 
+                    sep="")
+tc.names3["n5"] <- newname_n5
+
+# Tree 3, n8
+# family/family was low res
+tree3_n8 <- name.balance(phy_tree(pseq.filt2),
+                             tax_table(pseq.filt2),
+                             'n8',
+                             return.votes=c("up", "down"))
+up_n <- tree3_n8[[c('up.votes', 'Species')]]
+up_n
+num_n <- names(up_n[up_n == max(up_n)])
+down_n <- tree3_n8[[c('down.votes', 'Genus')]]
+down_n
+denom_n <- names(down_n[down_n == max(down_n)])
+newname_n8 <- paste("Species", "_", num_n, 
+                    "/", 
+                    "Genus", "_", denom_n, 
+                    sep="")
+tc.names3["n8"] <- newname_n8
+
+
+# Tree 3, n16
+# species/family was low res
+tree3_n16 <- name.balance(phy_tree(pseq.filt2),
+                             tax_table(pseq.filt2),
+                             'n16',
+                             return.votes=c("up", "down"))
+up_n <- tree3_n16[[c('up.votes', 'Family')]]
+up_n
+num_n <- names(up_n[up_n == max(up_n)])
+down_n <- tree3_n16[[c('down.votes', 'Genus')]]
+down_n
+denom_n <- names(down_n[down_n == max(down_n)])
+newname_n16 <- paste("Family", "_", num_n, 
+                    "/", 
+                    "Genus", "_", denom_n, 
+                    sep="")
+tc.names3["n16"] <- newname_n16
+
+# Tree 3, n19
+# species/family was low res
+tree3_n19 <- name.balance(phy_tree(pseq.filt2),
+                             tax_table(pseq.filt2),
+                             'n19',
+                             return.votes=c("up", "down"))
+up_n <- tree3_n19[[c('up.votes', 'Genus')]]
+up_n
+num_n <- names(up_n[up_n == max(up_n)])
+down_n <- tree3_n19[[c('down.votes', 'Species')]]
+down_n
+denom_n <- names(down_n[down_n == max(down_n)])
+newname_n19 <- paste("Genus", "_", num_n, 
+                    "/", 
+                    "Species", "_", denom_n, 
+                    sep="")
+tc.names3["n19"] <- newname_n19
+
+
+# Tree 4
+tc.names4
+# Tree 3, n20
+# numerator (genus) was low res
+tree4_n20 <- name.balance(phy_tree(pseq.filt2),
+                             tax_table(pseq.filt2),
+                             'n20',
+                             return.votes=c("up", "down"))
+up_n <- tree4_n20[[c('up.votes', 'Genus')]]
+up_n
+num_n <- names(up_n[up_n == max(up_n)])
+down_n <- tree4_n20[[c('down.votes', 'Family')]]
+down_n
+denom_n <- names(down_n[down_n == max(down_n)])
+newname_n20 <- paste("Genus", "_", num_n, 
+                    "/", 
+                    "Family", "_", denom_n, 
+                    sep="")
+tc.names4["n20"] <- newname_n20
+
+```
+
+
+##### Tree 1 - No longer available when s = 1/6
+```{r}
+
+```
+
+##### Violin plots 1 - No longer available when s=1/6
+```{r}
+
+```
+
+
+##### Tree 2
+```{r}
+# override for reproducibility
+pseq.filt <- pseq.filt2
+top.coords <- top.coords2
+tree <- tree2
+
+tc.nn <- name.to.nn(phy_tree(pseq.filt), top.coords)
+
+# tc.colors <- c('#fb9a99',
+#                '#F31616',
+#                '#b2df8a',
+#                '#33a02c',
+#                '#1f78b4',
+#                '#a6cee3',
+#                '#FFCC58')
+
+tc.colors <- c('#fb9a99',
+               '#b2df8a',
+               '#1f78b4',
+               '#a6cee3')
+
+
+p <- ggtree(tree) +
+    geom_balance(node=tc.nn[2], fill=tc.colors[2], alpha=0.6) +
+    geom_balance(node=tc.nn[4], fill=tc.colors[4], alpha=0.6) +
+    geom_balance(node=tc.nn[3], fill=tc.colors[3], alpha=0.6) +
+    geom_balance(node=tc.nn[1], fill=tc.colors[1], alpha=0.6)
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[1],
+                 p=p,
+                 labels=paste(rep(top.coords[1],2), c("num", "denom")),
+                 offset.text=.01, 
+                 bar=FALSE,
+                 hjust=0,
+                 vjust=0,
+                 size=3) +
+  scale_x_continuous(expand = expansion(mult = 0.3))
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[2], 
+                 p=p, 
+                 labels=paste(rep(top.coords[2],2), c("num", "denom")),
+                 offset.text=-1.1,
+                 bar=FALSE,
+                 hjust=0,
+                 vjust=0,
+                 size=3)
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[3], 
+                 p=p,
+                 labels=paste(rep(top.coords[3],2), c("num", "denom")),
+                 offset.text=.01, 
+                 bar=FALSE,
+                 hjust=0,
+                 size=3)
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[4], 
+                 p=p, 
+                 labels=paste(rep(top.coords[4],2), c("num", "denom")),
+                 offset.text=-.84, 
+                 bar=FALSE,
+                 hjust=0,
+                 vjust=0,
+                 size=3)
+
+p
+
+#ggsave("figures/diet_t2_PhILR_tree.svg", height=8, width=6)
+
+```
+
+##### Violin plots 2
+```{r}
+# override for reproducibility
+philr.dat <- philr.dat2
+pseq.filt <- pseq.filt2
+top.coords <- top.coords2
+tree <- tree2
+tc.names <- tc.names2
+
+philr.long <- convert_to_long(philr.dat, 
+                              labels=metadata$Diet) %>%
+  filter(coord %in% top.coords)
+
+philr.long$coord <- as.factor(philr.long$coord) 
+philr.long$labels <- as.factor(philr.long$labels)
+
+philr.long$labels <- fct_recode(philr.long$labels,
+                                   "CD" = "1",
+                                   "WD" = "2")
+philr.long$sample <- as.factor(philr.long$sample)
+
+metadata$ID <- rownames(metadata)
+philr.long$mouse <- metadata$Mouse[match(philr.long$sample, metadata$ID)]
+philr.long$mouse <- as.factor(as.character(philr.long$mouse))
+
+scatter.labels <- paste(names(tc.names), tc.names, sep=": ")
+names(scatter.labels) <- names(tc.names)
+
+p2 <- ggplot(philr.long, aes(x=labels, y=value, fill=coord)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75),
+              bw=.9) +
+  # geom_bar(color = "black",
+  #          stat="summary",
+  #          fun = mean,
+  #          position=position_dodge(.95)) +
+  #geom_jitter()+
+  scale_fill_manual(guide="none", values = c('#b2df8a', '#fb9a99', '#1f78b4', '#a6cee3')) +
+  facet_wrap(.~coord,
+             scales='free', ncol=1,
+             labeller=labeller(coord=scatter.labels)) +
+  labs(x = 'Diet', y = 'Balance Value') +
+ # scale_x_continuous(labels = scales::comma) +
+  theme_bw()
+
+p2
+
+#ggsave("figures/diet_t2_PhILR_violins.svg", height=8, width=6)
+
+
+# ggarrange(p, p2,
+#           labels = c("C", "D"),
+#           font.label = list(size = 18),
+#           nrow = 1, ncol = 2)
+
+
+#ggsave("figures/diet_t2_PhILR.svg", height=10, width=14)
+```
+
+##### Tree 3
+```{r}
+# override for reproducibility
+pseq.filt <- pseq.filt3
+top.coords <- top.coords3
+tree <- tree3
+
+tc.nn <- name.to.nn(phy_tree(pseq.filt), top.coords)
+
+tc.colors <- c('#fb9a99',  '#b2df8a', '#1f78b4', '#a6cee3')
+
+
+p <- ggtree(tree) +
+    geom_balance(node=tc.nn[1], fill=tc.colors[1], alpha=0.6) +
+    geom_balance(node=tc.nn[3], fill=tc.colors[3], alpha=0.6) +
+    geom_balance(node=tc.nn[2], fill=tc.colors[2], alpha=0.6) +
+    geom_balance(node=tc.nn[4], fill=tc.colors[4], alpha=0.6)
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[1],
+                 p=p,
+                 labels=paste(rep(top.coords[1],2), c("num", "denom")),
+                 offset.text=.01, 
+                 bar=FALSE,
+                 hjust=0,
+                 size=3) +
+  scale_x_continuous(expand = expansion(mult = 0.3))
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[2], 
+                 p=p, 
+                 labels=paste(rep(top.coords[2],2), c("num", "denom")),
+                 offset.text=.01, 
+                 bar=FALSE,
+                 hjust=0,
+                 vjust=0,
+                 size=3)
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[3], 
+                 p=p,
+                 labels=paste(rep(top.coords[3],2), c("num", "denom")),
+                 offset.text=-.84, 
+                 bar=FALSE,
+                 hjust=0,
+                 size=3)
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[4], 
+                 p=p, 
+                 labels=paste(rep(top.coords[4],2), c("num", "denom")),
+                 offset.text=.01,
+                 bar=FALSE,
+                 hjust=0,
+                 vjust=0,
+                 size=3)
+
+
+p
+
+#ggsave("figures/diet_t3_PhILR_tree.svg", height=8, width=6)
+
+```
+
+##### Violin plots 3
+```{r}
+# override for reproducibility
+philr.dat <- philr.dat3
+pseq.filt <- pseq.filt3
+top.coords <- top.coords3
+tree <- tree3
+tc.names <- tc.names3
+
+philr.long <- convert_to_long(philr.dat, 
+                              labels=metadata$Diet) %>%
+  filter(coord %in% top.coords)
+
+philr.long$coord <- as.factor(philr.long$coord) 
+philr.long$labels <- as.factor(philr.long$labels)
+
+philr.long$labels <- fct_recode(philr.long$labels,
+                                   "CD" = "1",
+                                   "WD" = "2")
+philr.long$sample <- as.factor(philr.long$sample)
+
+metadata$ID <- rownames(metadata)
+philr.long$mouse <- metadata$Mouse[match(philr.long$sample, metadata$ID)]
+philr.long$mouse <- as.factor(as.character(philr.long$mouse))
+
+scatter.labels <- paste(names(tc.names), tc.names, sep=": ")
+names(scatter.labels) <- names(tc.names)
+
+p2 <- ggplot(philr.long, aes(x=labels, y=value, fill=coord)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75),
+              bw=.9) +
+  # geom_bar(color = "black",
+  #          stat="summary",
+  #          fun = mean,
+  #          position=position_dodge(.95)) +
+  #geom_jitter()+
+  scale_fill_manual(guide="none", values = c('#a6cee3', '#fb9a99', '#1f78b4', '#b2df8a')) +
+  facet_wrap(.~coord,
+             scales='free', ncol=1,
+             labeller=labeller(coord=scatter.labels)) +
+  labs(x = 'Diet', y = 'Balance Value') +
+ # scale_x_continuous(labels = scales::comma) +
+  theme_bw()
+
+p2
+
+#ggsave("figures/diet_t3_PhILR_violins.svg", height=8, width=6)
+
+
+# ggarrange(p, p2,
+#           labels = c("E", "F"),
+#           font.label = list(size = 18),
+#           nrow = 1, ncol = 2)
+
+
+#ggsave("figures/diet_t3_PhILR.svg", height=10, width=14)
+```
+
+
+##### Tree 4
+```{r}
+# override for reproducibility
+pseq.filt <- pseq.filt4
+top.coords <- top.coords4
+tree <- tree4
+
+tc.nn <- name.to.nn(phy_tree(pseq.filt), top.coords)
+
+tc.colors <- c('#fb9a99', '#1f78b4')
+
+
+p <- ggtree(tree) +
+    geom_balance(node=tc.nn[1], fill=tc.colors[1], alpha=0.6) +
+    geom_balance(node=tc.nn[2], fill=tc.colors[2], alpha=0.6)
+
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[1],
+                 p=p,
+                 labels=paste(rep(top.coords[1],2), c("num", "denom")),
+                 offset.text=0.01,
+                 bar=FALSE,
+                 hjust=0,
+                 size=3) +
+  scale_x_continuous(expand = expansion(mult = 0.3))
+
+p <- annotate_balance(tr=phy_tree(pseq.filt), coord=top.coords[2], 
+                 p=p, 
+                 labels=paste(rep(top.coords[2],2), c("num", "denom")),
+                 offset.text=.01,
+                 bar=FALSE,
+                 hjust=0,
+                 vjust=0,
+                 size=3)
+
+p
+
+#ggsave("figures/diet_t4_PhILR_tree.svg", height=8, width=6)
+
+```
+
+##### Violin plots 4
+```{r}
+# override for reproducibility
+philr.dat <- philr.dat4
+pseq.filt <- pseq.filt4
+top.coords <- top.coords4
+tree <- tree4
+tc.names <- tc.names4
+
+philr.long <- convert_to_long(philr.dat, 
+                              labels=metadata$Diet) %>%
+  filter(coord %in% top.coords)
+
+philr.long$coord <- as.factor(philr.long$coord) 
+philr.long$labels <- as.factor(philr.long$labels)
+
+philr.long$labels <- fct_recode(philr.long$labels,
+                                   "CD" = "1",
+                                   "WD" = "2")
+philr.long$sample <- as.factor(philr.long$sample)
+
+metadata$ID <- rownames(metadata)
+philr.long$mouse <- metadata$Mouse[match(philr.long$sample, metadata$ID)]
+philr.long$mouse <- as.factor(as.character(philr.long$mouse))
+
+scatter.labels <- paste(names(tc.names), tc.names, sep=": ")
+names(scatter.labels) <- names(tc.names)
+
+p2 <- ggplot(philr.long, aes(x=labels, y=value, fill=coord)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75),
+              bw=.9) +
+  # geom_bar(color = "black",
+  #          stat="summary",
+  #          fun = mean,
+  #          position=position_dodge(.95)) +
+  #geom_jitter()+
+  scale_fill_manual(guide="none", values = c('#1f78b4', '#fb9a99')) +
+  facet_wrap(.~coord,
+             scales='free', ncol=1,
+             labeller=labeller(coord=scatter.labels)) +
+  labs(x = 'Day', y = 'Balance Value') +
+ # scale_x_continuous(labels = scales::comma) +
+  theme_bw()
+
+p2
+
+#ggsave("figures/diet_t4_PhILR_violins.svg", height=8, width=7)
+
+# ggarrange(p, p2,
+#           labels = c("G", "H"),
+#           font.label = list(size = 18),
+#           nrow = 1, ncol = 2)
+
+
+#ggsave("figures/diet_t4_PhILR.svg", height=10, width=14)
+```
+
+# End of Line

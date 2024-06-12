@@ -1,0 +1,10 @@
+start time: 2024-04-02 14:50:45.345189
+SCNIC analysis type: within
+input table: hf_weights_table/feature-table.biom
+number of samples in input table: 180
+number of observations in input table: 526
+output directory: /Users/christopher_lowry/Documents/GitHub/high_fat_microbiome/within_output
+number of processors used: 1
+distance metric used: sparcc
+finish time: 2024-04-02 14:51:31.870039
+elapsed time: 0:00:46.524850
