@@ -1,0 +1,111 @@
+---
+title: "High Fat Diet Analysis"
+author: "Luke Desmond"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+date: "2024-05-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#packages 
+```{r}
+library(readr)
+library(ggplot2)
+library(multcompView)
+library(dplyr)
+library(tidyr)
+library(agricolae)
+library(lme4)
+library(lmerTest) 
+```
+
+#GUT MICROBIOME
+
+#Observed OTUs
+```{r}
+Faithslong <- read.csv("~/Documents/Desmond_HFD/data/Faith_meta_long.csv")
+lmmOTUs <- lmer(OTUs~ Treatment*Diet*Time + (1|id), data=Faithslong)
+anova(lmmOTUs)
+```
+
+#Shannon's Diversity
+```{r}
+Faithslong <- read.csv("~/Documents/Desmond_HFD/data/Faith_meta_long.csv")
+lmmshannon <- lmer(Shannon~ Treatment*Diet*Time + (1|id), data=Faithslong)
+anova(lmmshannon)
+```
+
+#Pielou's evenness
+```{r}
+Faithslong <- read.csv("~/Documents/Desmond_HFD/data/Faith_meta_long.csv")
+lmmeven <- lmer(Evenness~ Treatment*Diet*Time + (1|id), data=Faithslong)
+anova(lmmeven)
+```
+
+#Faith's Diversity
+```{r}
+Faithslong <- read.csv("~/Documents/Desmond_HFD/data/Faith_meta_long.csv")
+lmmfaith <- lmer(Faith~ Treatment*Diet*Time + (1|id), data=Faithslong)
+anova(lmmfaith)
+```
+
+#Bacillota to Bacteroidota ratio
+```{r}
+Faithslong <- read.csv("~/Documents/Desmond_HFD/data/Faith_meta_long.csv")
+lmmratio <- lmer(Ratio~ Ratio_Treatment*Ratio_Diet*Ratio_time + (1|Ratio_ID), data=Faithslong)
+anova(lmmratio)
+```
+
+
+#Volatility
+```{r}
+data.vol.long <- read.csv("~/Documents/Desmond_HFD/data/volatility.csv")
+lmmvol <- lmer(W_Uni_Dist~ Time_Compare* Diet*Treatment + (1|Mouse), data=data.vol.long)
+anova(lmmvol)
+```
+
+
+
+#WEIGHT Related 
+
+#Mouse weight throughout the experiment 
+```{r}
+data <- read.csv("~/Documents/Desmond_HFD/data/WEIGHT_days.csv")
+lmmweight <- lmer(Weight ~ Treatment*Diet*Time + (1|Mouse), data=data)
+anova(lmmweight)
+
+```
+
+#Weekly calories consumed  
+```{r}
+data <- read.csv("~/Documents/Desmond_HFD/data/Weight.csv")
+lmmcal <- lmer(calories~ Treatment*Diet*Time + (1|Mouse_Food), data=data)
+anova(lmmcal)
+```
+
+#Weekly water consumed
+```{r}
+data <- read.csv("~/Documents/Desmond_HFD/data/Weight.csv")
+lmmwat <- lmer(Water_weight~ Treatment*Diet*Time + (1|Mouse_Food), data=data)
+anova(lmmwat)
+```
+#Ratio Calories and body weight
+```{r}
+data <- read.csv("~/Documents/Desmond_HFD/data/Weight.csv")
+lmmcalwat <- lmer(Ratio_cal_weight~ Treatment*Diet*Time + (1|Mouse_Food), data=data)
+anova(lmmcalwat)
+```
+
+#Ratio Water and body weight
+```{r}
+data <- read.csv("~/Documents/Desmond_HFD/data/Weight.csv")
+lmmcalwat <- lmer(Ratio_wat_bodyweight~ Treatment*Diet*Time + (1|Mouse_Food), data=data)
+anova(lmmcalwat)
+```
+
